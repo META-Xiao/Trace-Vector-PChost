@@ -134,7 +134,7 @@
       </section>
     </main>
 
-    <SettingsView v-show="activeTab === 2" />
+    <SettingsView ref="settingsView" v-show="activeTab === 2" />
     <main v-show="activeTab === 1" class="empty">{{ tabs[1] }} 页面建设中</main>
 
     <!-- 移动端底部导航 -->
@@ -145,7 +145,8 @@
           v-for="(tab, i) in tabs"
           :key="tab"
           :class="{ on: activeTab === i }"
-          @click="activeTab = i"
+          @click="onBottomTab(i)"
+          @mouseenter="i === 2 ? onSettingsHover() : undefined"
         >
           <span class="tab-icon">{{ tabIcons[i] }}</span>
           <span class="tab-label">{{ tab }}</span>
@@ -163,6 +164,22 @@ import SettingsView from "./SettingsView.vue";
 const tabs = ["总览", "图传", "设置"];
 const tabIcons = ["◈", "⊡", "⚙"];
 const activeTab = ref(0);
+const settingsView = ref<InstanceType<typeof SettingsView>>();
+
+const onSettingsHover = () => {
+  activeTab.value = 2;
+  settingsView.value?.openSheet();
+};
+
+const onBottomTab = (i: number) => {
+  // 窄屏下点设置 tab：若已在设置页则呼出 sheet，否则先切换再呼出
+  if (i === 2 && window.innerWidth <= 640) {
+    activeTab.value = 2;
+    settingsView.value?.openSheet();
+  } else {
+    activeTab.value = i;
+  }
+};
 const imageCanvas = ref<HTMLCanvasElement>();
 let timerId: number | undefined;
 

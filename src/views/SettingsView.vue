@@ -190,6 +190,29 @@
         </section>
       </div>
     </div>
+
+    <!-- 移动端 bottom sheet 导航 -->
+    <Teleport to="body">
+      <Transition name="sheet">
+        <div v-if="sheetOpen" class="sheet-backdrop" @click="sheetOpen = false">
+          <div class="sheet" @click.stop>
+            <div class="sheet-handle" />
+            <p class="sheet-title">Settings</p>
+            <div class="sheet-list">
+              <button
+                v-for="(section, i) in sections"
+                :key="section.id"
+                :class="{ active: activeSection === i }"
+                @click="selectSection(i)"
+              >
+                <span class="sheet-icon">{{ section.icon }}</span>
+                <span>{{ section.label }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -204,6 +227,12 @@ const sections = [
   { id: "about", icon: "◎", label: "About" },
 ];
 const activeSection = ref(0);
+const sheetOpen = ref(false);
+
+const openSheet = () => { sheetOpen.value = true; };
+const selectSection = (i: number) => { activeSection.value = i; sheetOpen.value = false; };
+
+defineExpose({ openSheet });
 
 const serialChannels = [
   { id: "usb_cdc", label: "USB-CDC" },
@@ -620,6 +649,117 @@ h1 {
 }
 
 /* Responsive */
+/* ── Bottom sheet ── */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+}
+
+.sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card-bg);
+  border-radius: 24px 24px 0 0;
+  padding: 12px 20px 40px;
+  backdrop-filter: blur(24px);
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--text-dim);
+  margin: 0 auto 16px;
+}
+
+.sheet-title {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  margin: 0 0 12px;
+}
+
+.sheet-list {
+  display: grid;
+  gap: 6px;
+}
+
+.sheet-list button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: left;
+  transition: background 150ms, color 150ms;
+}
+
+.sheet-list button:hover,
+.sheet-list button.active {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.sheet-list button.active {
+  color: #20b8a6;
+}
+
+.sheet-icon {
+  font-size: 20px;
+  width: 28px;
+  text-align: center;
+}
+
+/* sheet 动画 */
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: opacity 250ms ease;
+}
+.sheet-enter-active .sheet,
+.sheet-leave-active .sheet {
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+}
+.sheet-enter-from .sheet,
+.sheet-leave-to .sheet {
+  transform: translateY(100%);
+}
+
+@media (max-width: 640px) {
+  .settings-nav {
+    display: none;
+  }
+  .settings-body {
+    grid-template-columns: 1fr;
+  }
+  .settings {
+    padding: 0 14px 32px;
+  }
+  .section-card {
+    padding: 18px;
+  }
+  .field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
 @media (max-width: 900px) {
   .settings-body {
     grid-template-columns: 1fr;
