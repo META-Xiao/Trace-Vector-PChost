@@ -6,7 +6,7 @@ import { ImageFrame } from './protocol';
 export interface ImageProcessingConfig {
   imageWidth: number;     // 图像宽度（像素）
   imageHeight: number;    // 图像高度（像素）
-  fps: number;            // 帧率显示值
+  fps: number;            // 默认输出帧率（用于配置，非帧头字段）
 }
 
 /**
@@ -14,7 +14,7 @@ export interface ImageProcessingConfig {
  */
 export interface ProcessedImageData {
   frameId: number;        // 帧ID
-  fps: number;            // 帧率
+  fpsOut: number;         // 输出帧率（来自帧头 FPS_out 字段）
   width: number;          // 宽度
   height: number;         // 高度
   pixelData: Uint8ClampedArray;  // RGBA 格式像素数据
@@ -48,7 +48,7 @@ export class ImageFrameProcessor {
    * @returns 处理后的图像数据
    */
   process(frame: ImageFrame): ProcessedImageData {
-    const { frameId, fps, imageData } = frame;
+    const { frameId, fpsOut, imageData } = frame;
 
     if (imageData.length !== this.config.imageWidth * this.config.imageHeight) {
       throw new Error(
@@ -61,7 +61,7 @@ export class ImageFrameProcessor {
 
     const processed: ProcessedImageData = {
       frameId,
-      fps,
+      fpsOut,
       width: this.config.imageWidth,
       height: this.config.imageHeight,
       pixelData: new Uint8ClampedArray(this.pixelBuffer),

@@ -8,7 +8,7 @@ export const FRAME_TYPE = {
 } as const;
 
 export const FRAME_SIZE = {
-  IMAGE: 22570,     // 0xCC: 1 + 2 + 1 + 22560 + 1 = 22565 (+ 5字节头)
+  IMAGE: 22566,     // 0xCC: 1(ID) + 2(Frame) + 1(FPS_cam) + 1(FPS_out) + 22560(data) + 1(checksum)
   LOG_MAX: 260,     // 0xDD: 1 + 2 + 256 + 1 = 260
   RESOURCE: 18,     // 0xEE: 1 + 1 + 1 + 2 + 2 + 2 + 2 + 6 + 1 = 18
 } as const;
@@ -16,13 +16,15 @@ export const FRAME_SIZE = {
 export const BAUDRATE = 115200;
 
 /**
- * 图传帧 (0xCC) - 22570 字节
+ * 图传帧 (0xCC) - 22566 字节
+ * 帧结构: ID(1) + Frame(2) + FPS_cam(1) + FPS_out(1) + ImageData(22560) + Checksum(1)
  */
 export interface ImageFrame {
   type: 'IMAGE';
-  frameId: number;        // 2字节
-  fps: number;            // 1字节
-  imageData: Uint8Array;  // 22560字节
+  frameId: number;        // 2字节 uint16 大端
+  fpsCam: number;         // 1字节 摄像头帧率（固定100）
+  fpsOut: number;         // 1字节 输出帧率（固定25）
+  imageData: Uint8Array;  // 22560字节 188×120灰度
   checksum: number;       // 1字节
 }
 

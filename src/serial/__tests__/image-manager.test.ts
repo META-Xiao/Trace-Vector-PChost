@@ -39,7 +39,7 @@ describe('ImageProcessManager', () => {
     return {
       type: 'IMAGE',
       frameId,
-      fps: 25,
+      fpsOut: 25,
       imageData,
       checksum: 0,
     };
@@ -70,7 +70,7 @@ describe('ImageProcessManager', () => {
       const callArgs = eventHandler.mock.calls[0][0] as ImageProcessEvent;
       if (callArgs.type === 'IMAGE_RECEIVED') {
         expect(callArgs.data.frameId).toBe(1);
-        expect(callArgs.data.fps).toBe(25);
+        expect(callArgs.data.fpsOut).toBe(25);
         expect(callArgs.data.pixelData.length).toBe(188 * 120 * 4);
       }
 
@@ -246,7 +246,7 @@ describe('ImageProcessManager', () => {
       frame: {
         type: 'IMAGE',
         frameId: 1,
-        fps: 25,
+        fpsOut: 25,
         imageData: new Uint8Array(100), // 错误的大小会触发错误
         checksum: 0,
       } as any,

@@ -98,7 +98,7 @@ function handleTelemetryFrame(
  * 示例 3: 处理图传帧
  */
 function handleImageFrame(frame: ImageFrame) {
-  console.log(`[图传] Frame #${frame.frameId}, FPS: ${frame.fps}`);
+  console.log(`[图传] Frame #${frame.frameId}, FPS_cam: ${frame.fpsCam}, FPS_out: ${frame.fpsOut}`);
   console.log(`  图像大小: ${frame.imageData.length} 字节 (188×120 灰度)`);
   console.log(`  校验和: 0x${frame.checksum.toString(16)}`);
 
