@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="settings">
     <div class="settings-header">
       <p class="hello">Configure your environment</p>
@@ -12,7 +12,10 @@
           v-for="(section, i) in sections"
           :key="section.id"
           :class="{ active: activeSection === i }"
-          @click="activeSection = i"
+          @click="handleNavClick(i)"
+          @pointerdown="startLongPress(i)"
+          @pointerup="endLongPress"
+          @pointerleave="endLongPress"
         >
           <span class="nav-icon">{{ section.icon }}</span>
           <span class="nav-label">{{ section.label }}</span>
@@ -195,8 +198,17 @@
     <Teleport to="body">
       <Transition name="sheet">
         <div v-if="sheetOpen" class="sheet-backdrop" @click="sheetOpen = false">
-          <div class="sheet" @click.stop>
-            <div class="sheet-handle" />
+          <div
+            class="sheet"
+            @click.stop
+            :style="{ transform: `translateY(${sheetY}px)` }"
+          >
+            <div
+              class="sheet-handle"
+              @pointerdown="startBarDrag"
+            >
+              <span class="sheet-handle-bar" />
+            </div>
             <p class="sheet-title">Settings</p>
             <div class="sheet-list">
               <button
@@ -217,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
+import { reactive, ref, watch, onMounted, onUnmounted } from "vue";
 import AppSelect from "../components/AppSelect.vue";
 
 const sections = [
@@ -228,11 +240,106 @@ const sections = [
 ];
 const activeSection = ref(0);
 const sheetOpen = ref(false);
+const sheetY = ref(0);
 
-const openSheet = () => { sheetOpen.value = true; };
-const selectSection = (i: number) => { activeSection.value = i; sheetOpen.value = false; };
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let isDragging = false;
+let dragStartY = 0;
+let activeDragPointerId: number | null = null;
+let sheetHandleEl: HTMLElement | null = null;
+
+const isNarrowScreen = () => window.innerWidth <= 900;
+
+const handleNavClick = (i: number) => {
+  // 清除长按计时器，因为已经点击了
+  if (longPressTimer) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+  activeSection.value = i;
+};
+
+const startLongPress = (i: number) => {
+  if (!isNarrowScreen()) return;
+
+  longPressTimer = setTimeout(() => {
+    activeSection.value = i;
+    openSheet();
+  }, 500);
+};
+
+const endLongPress = () => {
+  if (longPressTimer) clearTimeout(longPressTimer);
+  longPressTimer = null;
+};
+
+const openSheet = () => {
+  sheetOpen.value = true;
+  sheetY.value = 0;
+};
+
+const selectSection = (i: number) => {
+  activeSection.value = i;
+  sheetOpen.value = false;
+};
 
 defineExpose({ openSheet });
+
+const startBarDrag = (e: PointerEvent) => {
+  if (e.button !== 0 || !sheetOpen.value) return;
+
+  isDragging = true;
+  dragStartY = e.clientY;
+  activeDragPointerId = e.pointerId;
+  sheetHandleEl = e.currentTarget as HTMLElement;
+  sheetHandleEl.setPointerCapture?.(e.pointerId);
+  e.preventDefault();
+};
+
+const handleBarDrag = (e: PointerEvent) => {
+  if (
+    !isDragging ||
+    !sheetOpen.value ||
+    activeDragPointerId !== e.pointerId
+  ) {
+    return;
+  }
+
+  const delta = e.clientY - dragStartY;
+  sheetY.value = Math.max(0, delta);
+  e.preventDefault();
+};
+
+const endBarDrag = (e?: PointerEvent) => {
+  if (!isDragging) return;
+
+  if (e && activeDragPointerId !== e.pointerId) return;
+
+  if (e && sheetHandleEl?.hasPointerCapture?.(e.pointerId)) {
+    sheetHandleEl.releasePointerCapture(e.pointerId);
+  }
+
+  isDragging = false;
+  activeDragPointerId = null;
+  sheetHandleEl = null;
+
+  if (sheetY.value > 60) {
+    sheetOpen.value = false;
+  }
+  sheetY.value = 0;
+};
+
+onMounted(() => {
+  document.addEventListener("pointermove", handleBarDrag, { passive: false });
+  document.addEventListener("pointerup", endBarDrag);
+  document.addEventListener("pointercancel", endBarDrag);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("pointermove", handleBarDrag);
+  document.removeEventListener("pointerup", endBarDrag);
+  document.removeEventListener("pointercancel", endBarDrag);
+});
 
 const serialChannels = [
   { id: "usb_cdc", label: "USB-CDC" },
@@ -670,11 +777,27 @@ h1 {
 }
 
 .sheet-handle {
+  width: 56px;
+  height: 32px;
+  margin: 0 auto 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.sheet-handle:active {
+  cursor: grabbing;
+}
+
+.sheet-handle-bar {
   width: 40px;
   height: 4px;
   border-radius: 999px;
   background: var(--text-dim);
-  margin: 0 auto 16px;
+  pointer-events: none;
 }
 
 .sheet-title {
