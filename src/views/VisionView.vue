@@ -80,7 +80,7 @@
 
       <!-- MCU log -->
       <div class="vision-log">
-        <div class="log-title">MCU Output <em>LIVE</em></div>
+        <div class="log-title">MCU Output <em :class="conn.connected ? 'live' : 'offline'">{{ conn.connected ? 'LIVE' : 'OFFLINE' }}</em></div>
         <div class="log-body">
           <div
             v-for="(log, i) in logs"
@@ -96,6 +96,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Icon } from '@iconify/vue';
+import { conn } from '../stores/connection';
 
 const props = defineProps<{
   canvasRef?: HTMLCanvasElement | null;
@@ -450,9 +451,11 @@ onUnmounted(() => { cancelAnimationFrame(animId); recorder?.stop(); });
   font-size: 9px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(32,184,166,.15);
-  color: #20b8a6;
 }
+.log-title em.live    { background: rgba(32,184,166,.15); color: #20b8a6; }
+.log-title em.offline { background: rgba(239,68,68,.12);  color: #ef4444; }
+[data-theme="dark"] .log-title em.live    { background: rgba(74,222,128,.15); color: #4ade80; }
+[data-theme="dark"] .log-title em.offline { background: rgba(248,113,113,.15); color: #f87171; }
 .log-body {
   flex: 1;
   overflow-y: auto;
