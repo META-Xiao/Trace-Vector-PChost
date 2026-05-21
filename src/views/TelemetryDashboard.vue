@@ -864,7 +864,34 @@ h1 {
     grid-template-columns: 1fr;
   }
   .telemetry-zone {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .resource-stack {
+    display: grid;
+    grid-template-rows: unset;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .resource-card .mini-chart {
+    min-height: 48px;
+  }
+  .motion-stack {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding-top: 0;
+    gap: 8px;
+  }
+  .speed-card {
+    height: auto;
+  }
+  .speed-chart {
+    height: 80px;
+  }
+  .attitude-card {
+    margin-top: 0;
   }
   .vision-pane,
   .mcu-card {
