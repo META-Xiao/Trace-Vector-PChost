@@ -197,7 +197,8 @@
 
     <!-- CLI Panel -->
     <Transition name="cli">
-      <div v-if="cliOpen" class="cli-panel">
+      <div v-if="cliOpen" class="cli-panel" :style="{ height: cliHeight + 'px' }">
+        <div class="cli-resize-bar" @pointerdown="startCliResize" />
         <div class="cli-header">
           <span class="cli-title"><Icon icon="lucide:terminal" /> CLI</span>
           <button class="cli-close" @click="cliOpen = false"><Icon icon="lucide:x" /></button>
@@ -222,6 +223,21 @@ const activeTab = ref(0);
 const settingsView = ref<InstanceType<typeof SettingsView>>();
 
 const cliOpen = ref(false);
+const cliHeight = ref(parseInt(localStorage.getItem("cliHeight") ?? "260"));
+
+function startCliResize(e: PointerEvent) {
+  const startY = e.clientY, startH = cliHeight.value;
+  const onMove = (ev: PointerEvent) => {
+    cliHeight.value = Math.max(120, Math.min(window.innerHeight - 80, startH - (ev.clientY - startY)));
+  };
+  const onUp = () => {
+    localStorage.setItem("cliHeight", String(cliHeight.value));
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
 const onKey = (e: KeyboardEvent) => {
   if (e.ctrlKey && e.key === "j") { e.preventDefault(); cliOpen.value = !cliOpen.value; }
 };
@@ -957,6 +973,14 @@ h1 {
   backdrop-filter: blur(24px);
   box-shadow: 0 -8px 40px rgba(0,0,0,.15);
 }
+.cli-resize-bar {
+  height: 5px;
+  cursor: ns-resize;
+  flex-shrink: 0;
+  background: transparent;
+  transition: background 150ms;
+}
+.cli-resize-bar:hover { background: var(--surface); }
 .cli-header {
   display: flex;
   align-items: center;
