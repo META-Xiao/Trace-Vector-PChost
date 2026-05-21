@@ -232,10 +232,11 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch, onMounted, onUnmounted } from "vue";
+import { reactive, ref, watch, computed, onMounted, onUnmounted } from "vue";
 import { Icon } from "@iconify/vue";
 import AppSelect from "../components/AppSelect.vue";
 import { conn } from "../stores/connection";
+import { usePlatform } from "../composables/usePlatform";
 
 const sections = [
   { id: "serial", icon: "lucide:cable", label: "Serial" },
@@ -347,11 +348,19 @@ onUnmounted(() => {
   systemMq?.removeEventListener("change", onSystemChange);
 });
 
-const serialChannels = [
-  { id: "usb_cdc", label: "USB-CDC" },
-  { id: "uart", label: "UART" },
-  { id: "wifi", label: "WIFI" },
-];
+const { platform } = usePlatform();
+const serialChannels = computed(() => {
+  const all = [
+    { id: "usb_cdc", label: "USB-CDC" },
+    { id: "uart", label: "UART" },
+    { id: "wifi", label: "WIFI" },
+  ];
+  return platform.value === "android" ? all.filter(c => c.id === "wifi") : all;
+});
+
+watch(platform, (p) => {
+  if (p === "android" && serial.channel !== "wifi") serial.channel = "wifi";
+});
 
 const USB_VENDORS: Record<number, string> = {
   0x1a86: "CH340", 0x0403: "FTDI", 0x10c4: "CP210x", 0x2341: "Arduino",

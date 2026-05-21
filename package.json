@@ -8,15 +8,23 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:open": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@iconify/vue": "^5.0.1",
     "vue": "^3.3.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^6.2.1",
+    "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^20.0.0",
     "@vitejs/plugin-vue": "^4.0.0",
     "typescript": "^5.0.0",

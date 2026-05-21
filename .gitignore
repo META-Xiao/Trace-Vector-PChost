@@ -34,3 +34,12 @@ coverage/
 *.tmp
 *.temp
 .cache/
+
+# Tauri
+src-tauri/target/
+
+# Android / Capacitor
+android/build/
+android/.gradle/
+android/app/build/
+android/local.properties
