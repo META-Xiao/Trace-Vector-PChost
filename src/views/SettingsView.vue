@@ -352,7 +352,6 @@ const serialChannels = [
   { id: "uart", label: "UART" },
   { id: "wifi", label: "WIFI" },
 ];
-const baudRates = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
 const USB_VENDORS: Record<number, string> = {
   0x1a86: "CH340", 0x0403: "FTDI", 0x10c4: "CP210x", 0x2341: "Arduino",
@@ -446,9 +445,9 @@ const channels = reactive([
   },
 ]);
 
-const onLangChange = (v: string) => {
+const onLangChange = (v: string | number) => {
   if (v === "zh") { alert("Chinese localization is not yet available."); return; }
-  display.lang = v;
+  display.lang = String(v);
 };
 
 const toggleConnect = () => {

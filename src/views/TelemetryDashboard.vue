@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page" @click="avatarOpen = false; mobileAvatarOpen = false">
     <nav class="nav">
       <b class="logo" @click="cliOpen = !cliOpen" title="Toggle CLI (Ctrl+J)"><Icon icon="lucide:sparkles" /></b>
       <div class="tabs">
@@ -176,11 +176,15 @@
       <div
         class="avatar-m"
         :class="conn.connected ? 'online' : 'offline'"
-        @click="avatarOpen = !avatarOpen"
+        @click.stop="mobileAvatarOpen = !mobileAvatarOpen"
       >
         {{ conn.connected ? conn.mcuName.slice(0, 2) + '.' : 'TV' }}
+      </div>
+
+      <!-- Mobile avatar popup — fixed above bottom-nav -->
+      <Teleport to="body">
         <Transition name="popup">
-          <div v-if="avatarOpen" class="avatar-popup avatar-popup-m">
+          <div v-if="mobileAvatarOpen" class="avatar-popup-m-fixed" @click.stop>
             <div class="popup-status" :class="conn.connected ? 'online' : 'offline'">
               {{ conn.connected ? 'Online' : 'Offline' }}
             </div>
@@ -192,7 +196,7 @@
             <div v-else class="popup-hint">No MCU connected</div>
           </div>
         </Transition>
-      </div>
+      </Teleport>
     </nav>
 
     <!-- CLI Panel -->
@@ -243,6 +247,7 @@ const onKey = (e: KeyboardEvent) => {
 };
 
 const avatarOpen = ref(false);
+const mobileAvatarOpen = ref(false);
 const now = ref(Date.now());
 const uptime = computed(() => {
   if (!conn.connectedAt) return "";
@@ -534,6 +539,22 @@ onUnmounted(() => {
   right: 0;
   bottom: calc(100% + 10px);
   top: auto;
+}
+.avatar-popup-m-fixed {
+  position: fixed;
+  bottom: 74px;
+  right: 16px;
+  min-width: 180px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(20px);
+  padding: 12px 14px;
+  z-index: 300;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
 }
 .popup-status {
   font-weight: 800;
