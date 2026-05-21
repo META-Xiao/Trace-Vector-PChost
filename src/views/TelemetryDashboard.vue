@@ -338,37 +338,71 @@ const pushPoint = (arr: typeof cpuPoints, value: number) => {
   arr.value = [...arr.value.slice(1), value];
 };
 
+let frameAnimId: number;
+let snowflakeAngle = 0;
+
+function kochPoints(x1: number, y1: number, x2: number, y2: number, depth: number): [number,number][] {
+  if (depth === 0) return [[x2, y2]];
+  const dx = x2 - x1, dy = y2 - y1;
+  const ax = x1 + dx/3, ay = y1 + dy/3;
+  const bx = x1 + dx*2/3, by = y1 + dy*2/3;
+  const mx = (x1+x2)/2 - dy*Math.sqrt(3)/6, my = (y1+y2)/2 + dx*Math.sqrt(3)/6;
+  return [...kochPoints(x1,y1,ax,ay,depth-1), ...kochPoints(ax,ay,mx,my,depth-1),
+          ...kochPoints(mx,my,bx,by,depth-1), ...kochPoints(bx,by,x2,y2,depth-1)];
+}
+
 const drawFrame = () => {
   const canvas = imageCanvas.value;
   const ctx = canvas?.getContext("2d");
   if (!canvas || !ctx) return;
-  const g = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  g.addColorStop(0, "#f9f5df");
-  g.addColorStop(1, "#d9f7ee");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "rgba(36,36,36,.13)";
-  for (let x = 0; x < canvas.width; x += 14) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
-    ctx.stroke();
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = "#0a0e1a";
+  ctx.fillRect(0, 0, w, h);
+
+  const cx = w/2, cy = h/2, r = Math.min(w,h) * 0.38;
+  snowflakeAngle += 0.008;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(snowflakeAngle);
+  ctx.strokeStyle = "rgba(32,184,166,0.85)";
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for (let s = 0; s < 3; s++) {
+    const a = (s * 2 * Math.PI) / 3;
+    const x1 = Math.cos(a)*r, y1 = Math.sin(a)*r;
+    const x2 = Math.cos(a + 2*Math.PI/3)*r, y2 = Math.sin(a + 2*Math.PI/3)*r;
+    const pts = kochPoints(x1,y1,x2,y2,3);
+    if (s === 0) ctx.moveTo(x1, y1); else ctx.lineTo(x1, y1);
+    pts.forEach(([px,py]) => ctx.lineTo(px, py));
   }
-  for (let y = 0; y < canvas.height; y += 14) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
-    ctx.stroke();
-  }
-  ctx.fillStyle = "#242424";
-  ctx.font = "12px sans-serif";
-  ctx.fillText("No image data", 56, 64);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+
+  frameAnimId = requestAnimationFrame(drawFrame);
 };
 
 onMounted(() => {
   window.addEventListener("keydown", onKey);
   drawFrame();
+  let t = 6;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const mcuTemplates = [
+    () => `[${pad(Math.floor(t/60))}:${pad(t%60)}] [INFO] CPU usage: ${data.cpu}%`,
+    () => `[${pad(Math.floor(t/60))}:${pad(t%60)}] [INFO] RAM usage: ${data.ram}%`,
+    () => `[${pad(Math.floor(t/60))}:${pad(t%60)}] [INFO] Speed: ${data.speed} mm/s`,
+    () => `[${pad(Math.floor(t/60))}:${pad(t%60)}] [INFO] Servo: ${(data.servo/10).toFixed(1)}°`,
+    () => `[${pad(Math.floor(t/60))}:${pad(t%60)}] [WARN] Frame drop detected`,
+    () => `[${pad(Math.floor(t/60))}:${pad(t%60)}] [INFO] FPS: ${imageStats.fps.toFixed(1)}`,
+  ];
+  const hostTemplates = [
+    () => `[HOST ${pad(Math.floor(t/60))}:${pad(t%60)}] frame received ${188*120*2}B`,
+    () => `[HOST ${pad(Math.floor(t/60))}:${pad(t%60)}] serial rx ${Math.floor(Math.random()*512)+128}B`,
+    () => `[HOST ${pad(Math.floor(t/60))}:${pad(t%60)}] protocol ok 0xCC`,
+    () => `[HOST ${pad(Math.floor(t/60))}:${pad(t%60)}] latency ${Math.floor(Math.random()*8)+2}ms`,
+  ];
   timerId = window.setInterval(() => {
+    t++;
     now.value = Date.now();
     data.cpu = Math.floor(30 + Math.random() * 55);
     data.ram = Math.floor(42 + Math.random() * 38);
@@ -378,11 +412,18 @@ onMounted(() => {
     pushPoint(cpuPoints, data.cpu);
     pushPoint(ramPoints, data.ram);
     pushPoint(speedPoints, data.speed);
+    const mcu = mcuTemplates[Math.floor(Math.random() * mcuTemplates.length)]();
+    mcuLogs.value = [...mcuLogs.value.slice(-19), mcu];
+    if (Math.random() < 0.6) {
+      const host = hostTemplates[Math.floor(Math.random() * hostTemplates.length)]();
+      hostLogs.value = [...hostLogs.value.slice(-19), host];
+    }
   }, 1000);
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
+  cancelAnimationFrame(frameAnimId);
   if (timerId !== undefined) window.clearInterval(timerId);
 });
 </script>
