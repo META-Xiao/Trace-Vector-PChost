@@ -554,7 +554,7 @@ onUnmounted(() => {
   box-shadow: var(--card-shadow);
   backdrop-filter: blur(20px);
   padding: 12px 14px;
-  z-index: 300;
+  z-index: 500;
   font-size: 13px;
   color: var(--text);
   white-space: nowrap;
