@@ -11,6 +11,8 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@iconify/vue": "^5.0.1",
     "vue": "^3.3.0"
   },

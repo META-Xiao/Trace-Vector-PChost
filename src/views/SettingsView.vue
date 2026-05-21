@@ -146,7 +146,7 @@
             </div>
             <div class="field">
               <label>Language</label>
-              <AppSelect v-model="display.lang" :options="langOptions" />
+              <AppSelect :model-value="display.lang" :options="langOptions" @update:model-value="onLangChange" />
             </div>
           </div>
         </section>
@@ -220,7 +220,7 @@
                 :class="{ active: activeSection === i }"
                 @click="selectSection(i)"
               >
-                <span class="sheet-icon">{{ section.icon }}</span>
+                <span class="sheet-icon"><Icon :icon="section.icon" /></span>
                 <span>{{ section.label }}</span>
               </button>
             </div>
@@ -382,8 +382,8 @@ const baudOptions = [
   9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600,
 ].map((b) => ({ value: b, label: String(b) }));
 const langOptions = [
-  { value: "zh", label: "中文" },
   { value: "en", label: "English" },
+  { value: "zh", label: "简中 (unavailable)" },
 ];
 
 const serial = reactive({
@@ -400,7 +400,7 @@ const display = reactive({
   theme: "system",
   fpsCap: 30,
   canvasScale: 1,
-  lang: "zh",
+  lang: "en",
 });
 
 let systemMq: MediaQueryList | null = null;
@@ -445,6 +445,11 @@ const channels = reactive([
     enabled: true,
   },
 ]);
+
+const onLangChange = (v: string) => {
+  if (v === "zh") { alert("Chinese localization is not yet available."); return; }
+  display.lang = v;
+};
 
 const toggleConnect = () => {
   serial.connected = !serial.connected;
@@ -533,9 +538,12 @@ h1 {
 }
 
 .nav-icon {
-  font-size: 18px;
-  width: 22px;
-  text-align: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Content */
@@ -883,9 +891,12 @@ h1 {
 }
 
 .sheet-icon {
-  font-size: 20px;
-  width: 28px;
-  text-align: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* sheet 动画 */
