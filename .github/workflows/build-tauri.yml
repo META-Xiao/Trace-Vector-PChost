@@ -20,7 +20,7 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - run: npm ci
+      - run: npm install
 
       - uses: tauri-apps/tauri-action@v0
         env:
