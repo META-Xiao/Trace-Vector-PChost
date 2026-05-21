@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <nav class="nav">
-      <b class="logo">✦</b>
+      <b class="logo"><Icon icon="lucide:sparkles" /></b>
       <div class="tabs">
         <button
           v-for="(tab, i) in tabs"
@@ -169,7 +169,7 @@
           @click="onBottomTab(i)"
           @mouseenter="i === 2 ? onSettingsHover() : undefined"
         >
-          <span class="tab-icon">{{ tabIcons[i] }}</span>
+          <span class="tab-icon"><Icon :icon="tabIcons[i]" /></span>
           <span class="tab-label">{{ tab }}</span>
         </button>
       </div>
@@ -199,11 +199,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { Icon } from "@iconify/vue";
 import SettingsView from "./SettingsView.vue";
 import { conn } from "../stores/connection";
 
 const tabs = ["总览", "图传", "设置"];
-const tabIcons = ["◈", "⊡", "⚙"];
+const tabIcons = ["lucide:layout-dashboard", "lucide:video", "lucide:settings"];
 const activeTab = ref(0);
 const settingsView = ref<InstanceType<typeof SettingsView>>();
 

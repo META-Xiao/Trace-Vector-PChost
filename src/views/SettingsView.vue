@@ -17,7 +17,7 @@
           @pointerup="endLongPress"
           @pointerleave="endLongPress"
         >
-          <span class="nav-icon">{{ section.icon }}</span>
+          <span class="nav-icon"><Icon :icon="section.icon" /></span>
           <span class="nav-label">{{ section.label }}</span>
         </button>
       </nav>
@@ -233,14 +233,15 @@
 
 <script setup lang="ts">
 import { reactive, ref, watch, onMounted, onUnmounted } from "vue";
+import { Icon } from "@iconify/vue";
 import AppSelect from "../components/AppSelect.vue";
 import { conn } from "../stores/connection";
 
 const sections = [
-  { id: "serial", icon: "⌁", label: "Serial" },
-  { id: "display", icon: "◫", label: "Display" },
-  { id: "channels", icon: "≋", label: "Channels" },
-  { id: "about", icon: "◎", label: "About" },
+  { id: "serial", icon: "lucide:cable", label: "Serial" },
+  { id: "display", icon: "lucide:monitor", label: "Display" },
+  { id: "channels", icon: "lucide:layers", label: "Channels" },
+  { id: "about", icon: "lucide:info", label: "About" },
 ];
 const activeSection = ref(0);
 const sheetOpen = ref(false);
