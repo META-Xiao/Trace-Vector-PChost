@@ -217,10 +217,9 @@ onUnmounted(() => { cancelAnimationFrame(animId); recorder?.stop(); });
   grid-template-rows: auto 1fr;
   gap: 18px;
   padding: 0 28px 72px;
-  min-height: calc(100vh - 58px);
+  height: calc(100vh - 58px);
   color: var(--text);
   font-family: Inter, "Segoe UI", sans-serif;
-  align-items: start;
 }
 .vision-header {
   grid-column: 1 / -1;
@@ -308,6 +307,7 @@ onUnmounted(() => { cancelAnimationFrame(animId); recorder?.stop(); });
   flex-direction: column;
   gap: 14px;
   min-height: 0;
+  height: 100%;
 }
 
 /* ── Metrics grid ── */
@@ -412,6 +412,7 @@ onUnmounted(() => { cancelAnimationFrame(animId); recorder?.stop(); });
 /* ── MCU log ── */
 .vision-log {
   flex: 1;
+  max-height: 400px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow);
