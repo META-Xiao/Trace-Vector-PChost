@@ -49,14 +49,11 @@
             :key="card.id"
             class="metric-card"
           >
-            <div class="metric-head">
-              <span>{{ card.label }}</span>
-              <b>{{ card.value }}</b>
-            </div>
-            <svg viewBox="0 0 200 80" preserveAspectRatio="none" class="metric-chart">
-              <path class="metric-area" :d="areaPath(card.points, 200, 80, card.max)" />
-              <path class="metric-line" :d="linePath(card.points, 200, 80, card.max)" :style="{ stroke: card.color }" />
-            </svg>
+            <ServoCard v-if="card.isServo"
+              :deg="(props.data.servo/10).toFixed(1)"
+              :visual-deg="Math.max(-42, Math.min(42, props.data.servo/10 - 45))" />
+            <SensorCard v-else :label="card.label" :value="card.value" :color="card.color"
+              :points="card.points" :max="card.max" :padding="5" :view-w="200" :view-h="80" />
             <button class="remove-btn" @click="removeCard(card.id)"><Icon icon="lucide:x" /></button>
           </div>
 
@@ -91,15 +88,18 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Icon } from '@iconify/vue';
 import { conn } from '../stores/connection';
 import LogCard from '../components/LogCard.vue';
+import SensorCard from '../components/SensorCard.vue';
+import ServoCard from '../components/ServoCard.vue';
 
 const props = defineProps<{
   canvasRef?: HTMLCanvasElement | null;
   mcuLogs: string[];
-  data: { cpu: number; ram: number; rom: number; speed: number; servo: number };
+  data: { cpu: number; ram: number; rom: number; speed: number; servo: number; networkSpeed: number };
   cpuPoints: number[];
   ramPoints: number[];
   romPoints: number[];
   speedPoints: number[];
+  networkPoints: number[];
   fps: number;
 }>();
 
@@ -108,11 +108,12 @@ const logs = computed(() => props.mcuLogs.slice(-20));
 
 // ── Card catalogue ──────────────────────────────────────────
 const ALL_CARDS = computed(() => [
-  { id: 'cpu',   label: 'CPU',   value: `${props.data.cpu}%`,              color: '#242424', points: props.cpuPoints,   max: 100  },
-  { id: 'ram',   label: 'RAM',   value: `${props.data.ram}%`,              color: '#20b8a6', points: props.ramPoints,   max: 100  },
-  { id: 'rom',   label: 'ROM',   value: `${props.data.rom}%`,              color: '#c7d54f', points: props.romPoints,   max: 100  },
-  { id: 'speed', label: 'Speed', value: `${(props.data.speed/1000).toFixed(2)} m/s`, color: '#f59e0b', points: props.speedPoints, max: 2000 },
-  { id: 'servo', label: 'Servo', value: `${(props.data.servo/10).toFixed(1)}°`,      color: '#a78bfa', points: Array(12).fill(props.data.servo), max: 9000 },
+  { id: 'cpu',     label: 'CPU',        value: `${props.data.cpu}%`,                          color: '#242424', points: props.cpuPoints,     max: 100  },
+  { id: 'ram',     label: 'RAM',        value: `${props.data.ram}%`,                          color: '#20b8a6', points: props.ramPoints,     max: 100  },
+  { id: 'rom',     label: 'ROM',        value: `${props.data.rom}%`,                          color: '#c7d54f', points: props.romPoints,     max: 100  },
+  { id: 'network', label: 'Network RX', value: `${(props.data.networkSpeed/10).toFixed(1)} Mbps`, color: '#6366f1', points: props.networkPoints, max: 100  },
+  { id: 'speed',   label: 'Speed',      value: `${(props.data.speed/1000).toFixed(2)} m/s`,  color: '#f59e0b', points: props.speedPoints,   max: 2000 },
+  { id: 'servo',   label: 'Servo',      value: `${(props.data.servo/10).toFixed(1)}°`,        color: '#a78bfa', points: [] as number[],      max: 9000, isServo: true },
 ]);
 
 const addBtnEl = ref<HTMLElement>();
@@ -134,16 +135,6 @@ const availableCards = computed(() => ALL_CARDS.value.filter(c => !shownIds.valu
 
 function addCard(id: string) { shownIds.value = [...shownIds.value, id]; addPickerOpen.value = false; }
 function removeCard(id: string) { shownIds.value = shownIds.value.filter(x => x !== id); }
-
-// ── Chart helpers ────────────────────────────────────────────
-const linePath = (pts: number[], w: number, h: number, max: number) =>
-  pts.map((p, i) => {
-    const x = (i / (pts.length - 1)) * w;
-    const y = h - (Math.min(p, max) / max) * (h - 10) - 5;
-    return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
-const areaPath = (pts: number[], w: number, h: number, max: number) =>
-  `${linePath(pts, w, h, max)} L${w} ${h} L0 ${h} Z`;
 
 // ── Screenshot ───────────────────────────────────────────────
 function takeScreenshot() {

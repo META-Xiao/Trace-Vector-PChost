@@ -44,71 +44,27 @@
         <div class="left-column">
           <section class="telemetry-card">
             <section class="telemetry-zone">
-              <aside class="resource-stack">
+              <aside class="resource-column">
                 <div
                   v-for="item in resourceCards"
                   :key="item.name"
                   class="mini-card resource-card"
                 >
-                  <div class="mini-head">
-                    <span>{{ item.name }}</span
-                    ><b>{{ item.value }}%</b>
-                  </div>
-                  <svg
-                    viewBox="0 0 220 88"
-                    preserveAspectRatio="none"
-                    class="mini-chart"
-                  >
-                    <path
-                      class="mini-area"
-                      :d="areaPath(item.points, 220, 88)"
-                    />
-                    <path
-                      class="mini-line"
-                      :d="linePath(item.points, 220, 88)"
-                      :style="{ stroke: item.color }"
-                    />
-                  </svg>
+                  <SensorCard :label="item.name" :value="item.value + '%'" :color="item.color" :points="item.points" />
                 </div>
               </aside>
 
-              <aside class="motion-stack">
+              <aside class="motion-column">
+                <div class="mini-card resource-card">
+                  <SensorCard label="Network RX" :value="networkSpeed + ' Mbps'" color="#6366f1" :points="networkPoints" />
+                </div>
+
                 <div class="mini-card speed-card">
-                  <div class="mini-head">
-                    <span>Speed curve</span><b>{{ speedMs }} m/s</b>
-                  </div>
-                  <svg
-                    viewBox="0 0 240 150"
-                    preserveAspectRatio="none"
-                    class="speed-chart"
-                  >
-                    <path
-                      class="speed-area"
-                      :d="areaPath(speedPoints, 240, 150, 2000)"
-                    />
-                    <path
-                      class="speed-line"
-                      :d="linePath(speedPoints, 240, 150, 2000)"
-                    />
-                  </svg>
+                  <SensorCard label="Speed curve" :value="speedMs + ' m/s'" color="#20b8a6" :points="speedPoints" :max="2000" :view-w="240" :view-h="150" />
                 </div>
 
                 <div class="mini-card attitude-card">
-                  <div class="mini-head">
-                    <span>Servo attitude</span><b>{{ servoDeg }}°</b>
-                  </div>
-                  <div class="attitude">
-                    <div
-                      class="sky"
-                      :style="{ transform: `rotate(${servoVisualDeg}deg)` }"
-                    >
-                      <i />
-                    </div>
-                    <div class="aircraft">⌃</div>
-                    <div class="ticks">
-                      <span>-45</span><span>0</span><span>45</span>
-                    </div>
-                  </div>
+                  <ServoCard :deg="servoDeg" :visual-deg="servoVisualDeg" />
                 </div>
               </aside>
             </section>
@@ -148,6 +104,7 @@
       :ram-points="ramPoints"
       :rom-points="romPoints"
       :speed-points="speedPoints"
+      :network-points="networkPoints"
       :fps="imageStats.fps"
     />
 
@@ -214,7 +171,12 @@ import { Icon } from "@iconify/vue";
 import SettingsView from "./SettingsView.vue";
 import VisionView from "./VisionView.vue";
 import LogCard from "../components/LogCard.vue";
+import SensorCard from "../components/SensorCard.vue";
+import ServoCard from "../components/ServoCard.vue";
+import { useChartPath } from "../composables/useChartPath";
 import { conn } from "../stores/connection";
+
+const { linePath, areaPath } = useChartPath();
 
 const tabs = ["Overview", "Vision", "Settings"];
 const tabIcons = ["lucide:layout-dashboard", "lucide:video", "lucide:settings"];
@@ -271,12 +233,15 @@ const onBottomTab = (i: number) => {
 const imageCanvas = ref<HTMLCanvasElement>();
 let timerId: number | undefined;
 
-const data = reactive({ cpu: 45, ram: 60, rom: 65, speed: 150, servo: 250 });
+const data = reactive({ cpu: 45, ram: 60, rom: 65, speed: 150, servo: 250, networkSpeed: 45 });
 const imageStats = reactive({ fps: 25, droppedFrames: 0 });
 const cpuPoints = ref([58, 62, 54, 48, 50, 45, 52, 68, 63, 59, 66, 45]);
 const ramPoints = ref([42, 48, 46, 51, 55, 58, 60, 64, 61, 63, 66, 60]);
 const romPoints = ref([64, 65, 64, 66, 65, 65, 67, 66, 65, 65, 66, 65]);
 const speedPoints = ref([22, 28, 25, 36, 42, 38, 52, 48, 62, 58, 68, 64].map(v => v * 20));
+const networkPoints = ref([35, 42, 38, 55, 48, 62, 45, 58, 50, 65, 52, 45]);
+const networkSpeed = computed(() => (data.networkSpeed / 10).toFixed(1));
+const networkGaugePercent = computed(() => Math.min(100, (data.networkSpeed / 100) * 100));
 
 const mcuLogs = ref([
   "[00:00:01] MCU boot complete",
@@ -308,16 +273,6 @@ const servoVisualDeg = computed(() =>
   Math.max(-42, Math.min(42, data.servo / 10 - 45)),
 );
 
-const linePath = (points: number[], w: number, h: number, max = 100) =>
-  points
-    .map((p, i) => {
-      const x = (i / (points.length - 1)) * w;
-      const y = h - (Math.min(p, max) / max) * (h - 18) - 9;
-      return `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(" ");
-const areaPath = (points: number[], w: number, h: number, max = 100) =>
-  `${linePath(points, w, h, max)} L${w} ${h} L0 ${h} Z`;
 const pushPoint = (arr: typeof cpuPoints, value: number) => {
   arr.value = [...arr.value.slice(1), value];
 };
@@ -392,10 +347,12 @@ onMounted(() => {
     data.ram = Math.floor(42 + Math.random() * 38);
     data.speed = Math.floor(90 + Math.random() * 390);
     data.servo = Math.floor(80 + Math.random() * 820);
+    data.networkSpeed = Math.floor(20 + Math.random() * 80);
     imageStats.fps = 22 + Math.random() * 8;
     pushPoint(cpuPoints, data.cpu);
     pushPoint(ramPoints, data.ram);
     pushPoint(speedPoints, data.speed);
+    pushPoint(networkPoints, data.networkSpeed);
     const mcu = mcuTemplates[Math.floor(Math.random() * mcuTemplates.length)]();
     mcuLogs.value = [...mcuLogs.value.slice(-19), mcu];
     if (Math.random() < 0.6) {
@@ -674,15 +631,20 @@ h1 {
   align-content: start;
   min-width: 0;
 }
-.resource-stack {
-  display: contents;
+.resource-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.motion-stack {
-  display: contents;
+.motion-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .resource-card,
 .speed-card,
-.attitude-card {
+.attitude-card,
+.network-card {
   height: 150px;
   max-height: 150px;
 }
@@ -710,91 +672,16 @@ h1 {
   color: var(--text);
   font-size: 15px;
 }
-.mini-chart {
-  width: 100%;
-  height: calc(100% - 32px);
-  min-height: 82px;
-  margin-top: 8px;
-}
-.mini-area {
-  fill: rgba(214, 232, 115, 0.28);
-}
-.mini-line {
-  fill: none;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .speed-card {
   height: 204px;
   padding: 14px;
   display: flex;
   flex-direction: column;
 }
-.speed-chart {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  margin-top: 8px;
-}
-.speed-area {
-  fill: rgba(32, 184, 166, 0.16);
-}
-.speed-line {
-  fill: none;
-  stroke: #20b8a6;
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .attitude-card {
   aspect-ratio: 1/1;
   margin-top: auto;
   padding: 14px;
-}
-.attitude {
-  position: relative;
-  height: calc(100% - 30px);
-  margin-top: 10px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: #edf1ec;
-}
-.sky {
-  position: absolute;
-  inset: -32%;
-  background: linear-gradient(#88c7ef 0 49%, #fff 49% 51%, #d9b06a 51%);
-  transition: transform 0.45s ease;
-}
-.sky i {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 160%;
-  height: 1px;
-  background: rgba(255, 255, 255, 0.9);
-  transform: translate(-50%, -50%);
-}
-.aircraft {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 38px;
-  font-weight: 900;
-  color: #242424;
-  text-shadow: 0 1px 0 #fff;
-}
-.ticks {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 8px;
-  display: flex;
-  justify-content: space-between;
-  color: rgba(36, 36, 36, 0.54);
-  font-size: 10px;
-  font-weight: 900;
 }
 .mcu-card {
   padding: 14px;
@@ -929,8 +816,15 @@ h1 {
     gap: 8px;
     align-content: start;
   }
-  .resource-stack {
-    display: contents;
+  .resource-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .motion-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   .resource-card {
     height: 150px;
@@ -940,11 +834,9 @@ h1 {
   .resource-card .mini-chart {
     min-height: 48px;
   }
-  .motion-stack {
-    display: contents;
-  }
   .speed-card,
-  .attitude-card {
+  .attitude-card,
+  .network-card {
     height: 150px;
     max-height: 150px;
     max-width: none;
@@ -1024,45 +916,45 @@ h1 {
     grid-template-columns: 1fr;
     padding: 12px;
   }
-  /* telemetry-zone 变单列，内部各区块重排 */
+  /* telemetry-zone 变两列 */
   .telemetry-zone {
-    grid-template-columns: 1fr;
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: 1fr 1fr;
+    display: grid;
     gap: 10px;
   }
-  /* 第一行：CPU RAM ROM 三列 */
-  .resource-stack {
-    display: grid;
-    grid-template-rows: unset;
-    grid-template-columns: repeat(3, 1fr);
+  /* 第一列：CPU RAM ROM 三行 */
+  .resource-column {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
+  }
+  .resource-card {
+    height: 120px;
+    max-height: 120px;
   }
   .resource-card .mini-chart {
     min-height: 48px;
   }
-  /* 第二行：Speed + Servo 两列 */
-  .motion-stack {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding-top: 0;
+  /* 第二列：Network Speed Servo 三行 */
+  .motion-column {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
   }
-  .speed-card {
-    max-width: none;
-    justify-self: stretch;
-  }
-  .attitude-card {
-    max-width: none;
-    justify-self: stretch;
+  .network-card {
+    height: 120px;
+    max-height: 120px;
   }
   .speed-card {
-    height: auto;
+    height: 120px;
+    max-height: 120px;
   }
   .speed-chart {
-    height: 80px;
+    height: 60px;
   }
   .attitude-card {
+    height: 120px;
+    max-height: 120px;
     margin-top: 0;
   }
   .vision-pane,
