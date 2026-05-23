@@ -50,8 +50,8 @@
             class="metric-card"
           >
             <ServoCard v-if="card.isServo"
-              :deg="props.current ? (props.current.servoAngle/10).toFixed(1) : '--'"
-              :visual-deg="props.current ? Math.max(-42, Math.min(42, props.current.servoAngle/10 - 45)) : 0" />
+              :deg="current ? (current.servoAngle/10).toFixed(1) : '--'"
+              :visual-deg="current ? Math.max(-42, Math.min(42, current.servoAngle/10 - 45)) : 0" />
             <SensorCard v-else :label="card.label" :value="card.value" :color="card.color"
               :points="card.points" :max="card.max" :padding="5" :view-w="200" :view-h="80" />
             <button class="remove-btn" @click="removeCard(card.id)"><Icon icon="lucide:x" /></button>
@@ -90,37 +90,30 @@ import { conn } from '../stores/connection';
 import LogCard from '../components/LogCard.vue';
 import SensorCard from '../components/SensorCard.vue';
 import ServoCard from '../components/ServoCard.vue';
-import type { ProcessedResourceData } from '../serial/resource-processor';
+import { useTelemetry } from '../composables/useTelemetry';
 
-const props = defineProps<{
-  canvasRef?: HTMLCanvasElement | null;
-  mcuLogs: string[];
-  current: ProcessedResourceData | null;
-  cpuPoints: number[];
-  ramPoints: number[];
-  romPoints: number[];
-  speedPoints: number[];
-  networkPoints: number[];
-  networkRxKbps: number | null;
-}>();
+const {
+  current, mcuLogs, imageFps,
+  cpuPoints, ramPoints, romPoints, speedPoints, networkPoints,
+  networkRxKbps,
+} = useTelemetry();
 
 const canvasEl = ref<HTMLCanvasElement>();
-const logs = computed(() => props.mcuLogs.slice(-20));
-const fps = ref(0);
+const logs = computed(() => mcuLogs.value.slice(-20));
+const fps = imageFps;
 
 const XDATA_TOTAL = 16384, EDATA_TOTAL = 8192, RAM_TOTAL = XDATA_TOTAL + EDATA_TOTAL;
 
-// ── Card catalogue ──────────────────────────────────────────
 const NS = 'No Signal';
 const ALL_CARDS = computed(() => {
-  const d = props.current;
+  const d = current.value;
   const romPct = d ? Math.round((1 - (d.freeXDATA + d.freeEDATA) / RAM_TOTAL) * 100) : null;
   return [
-    { id: 'cpu',     label: 'CPU',        value: d ? `${d.cpuUsage}%`                      : NS, color: '#242424', points: props.cpuPoints,     max: 100,  isServo: false },
-    { id: 'ram',     label: 'RAM',        value: d ? `${d.ramUsage}%`                      : NS, color: '#20b8a6', points: props.ramPoints,     max: 100,  isServo: false },
-    { id: 'rom',     label: 'ROM',        value: romPct !== null ? `${romPct}%`            : NS, color: '#c7d54f', points: props.romPoints,     max: 100,  isServo: false },
-    { id: 'network', label: 'Network RX', value: props.networkRxKbps !== null ? (props.networkRxKbps >= 1024 ? `${(props.networkRxKbps/1024).toFixed(1)} KB/s` : `${Math.round(props.networkRxKbps)} B/s`) : NS, color: '#6366f1', points: props.networkPoints, max: 500, isServo: false },
-    { id: 'speed',   label: 'Speed',      value: d ? `${(d.speed / 1000).toFixed(2)} m/s` : NS, color: '#f59e0b', points: props.speedPoints,   max: 2000, isServo: false },
+    { id: 'cpu',     label: 'CPU',        value: d ? `${d.cpuUsage}%`                      : NS, color: '#242424', points: cpuPoints.value,     max: 100,  isServo: false },
+    { id: 'ram',     label: 'RAM',        value: d ? `${d.ramUsage}%`                      : NS, color: '#20b8a6', points: ramPoints.value,     max: 100,  isServo: false },
+    { id: 'rom',     label: 'ROM',        value: romPct !== null ? `${romPct}%`            : NS, color: '#c7d54f', points: romPoints.value,     max: 100,  isServo: false },
+    { id: 'network', label: 'Network RX', value: networkRxKbps.value !== null ? (networkRxKbps.value >= 1024 ? `${(networkRxKbps.value/1024).toFixed(1)} KB/s` : `${Math.round(networkRxKbps.value)} B/s`) : NS, color: '#6366f1', points: networkPoints.value, max: 500, isServo: false },
+    { id: 'speed',   label: 'Speed',      value: d ? `${(d.speed / 1000).toFixed(2)} m/s` : NS, color: '#f59e0b', points: speedPoints.value,   max: 2000, isServo: false },
     { id: 'servo',   label: 'Servo',      value: d ? `${(d.servoAngle / 10).toFixed(1)}°` : NS, color: '#a78bfa', points: [] as number[],      max: 9000, isServo: true  },
   ];
 });
@@ -197,6 +190,8 @@ function stopRecord() {
   recording.value = false;
   paused.value = false;
 }
+
+const props = defineProps<{ canvasRef?: HTMLCanvasElement | null }>();
 
 // ── Mirror parent canvas ─────────────────────────────────────
 const feedPaused = ref(false);

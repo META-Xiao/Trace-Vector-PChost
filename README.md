@@ -1,105 +1,87 @@
-## Trace-Vector-PChost
+# Trace-Vector-PChost
 
-[未开发完成！]
+针对21届智能车雁过留痕组 STC32G144K 调试专用上位机。使用混合编码和 WebSerial API 与 STC32G144K 智能车进行串口通信。
 
-针对21届智能车雁过留痕组STC调试专用的上位机，使用混合编码和 WebSerial API 与 STC32G144K 智能车进行串口通信。能够一次显示更多的调试信息，比逐飞的上位机更完善。
+## 功能特性
 
-### 功能特性
+- **图传显示** — 实时显示 188×120 摄像头画面，支持截图/录制
+- **日志输出** — MCU DEBUG 日志实时显示
+- **资源监控** — CPU/RAM/ROM 占用率、速度、舵机角度折线图
+- **命令发送** — 向 MCU 发送控制指令（CLI，开发中）
 
-- **图传显示** : 实时显示 188×120 摄像头画面
-- **日志输出** : DEBUG 日志实时显示
-- **资源监控** : CPU/RAM/ROM 占用率、速度、舵机角度
-- **命令发送** : 向 MCU 发送控制指令
+## 协议规范
 
-### 项目结构
-
-```
-pc-host/
-├── src/
-│   └── serial/                   # 串口通信层
-│       ├── protocol.ts           # 协议定义
-│       ├── port.ts               # WebSerial API
-│       ├── parser.ts             # 帧解析
-│       ├── manager.ts            # 通信管理器
-│       ├── examples.ts           # 使用示例
-│       └── __tests__/            # 单元 + 集成测试
-├── SERIAL_LAYER.md               # 通信层文档
-├── COMPLETION_REPORT.md          # 完成报告
-└── package.json
-```
-
-### 协议规范
-
-三层混合协议在单条 UART 上传输：
+三路混合协议在单条 UART (115200) 上传输：
 
 | 帧类型 | ID | 大小 | 频率 |
-|--------|----|----|------|
-| 图传 | 0xCC | 22570B | 25 FPS |
-| 日志 | 0xDD | 4+N B | 5 FPS |
-| 资源 | 0xEE | 18B | 5 FPS |
+|--------|-----|------|------|
+| 图传 | 0xCC | 22570 B | 25 FPS |
+| 日志 | 0xDD | 4+N B | 5 Hz |
+| 资源 | 0xEE | 18 B | 5 Hz |
 
-详见 [protocol.md](../project/doc/telemetry_protocol.md)
+详见 [telemetry_protocol.md](../project/doc/telemetry_protocol.md)
 
-### 快速开始
+## 项目结构
+
+```
+src/
+├── composables/
+│   ├── useTelemetry.ts       # 串口 + 数据管理（单例）
+│   ├── useCanvasAnimation.ts
+│   └── useChartPath.ts
+├── serial/                   # 通信层
+│   ├── protocol.ts           # 协议常量与类型
+│   ├── port.ts               # WebSerial API 封装
+│   ├── parser.ts             # 帧解析状态机
+│   ├── manager.ts            # 串口事件分发
+│   ├── image-manager.ts      # 图传帧处理
+│   ├── log-manager.ts        # 日志帧处理
+│   ├── resource-manager.ts   # 资源帧处理
+│   └── __tests__/            # 单元 + 集成测试
+├── stores/connection.ts      # 连接状态（reactive）
+├── views/
+│   ├── TelemetryDashboard.vue
+│   ├── VisionView.vue
+│   └── SettingsView.vue
+└── components/
+    ├── SensorCard.vue
+    ├── ServoCard.vue
+    └── LogCard.vue
+```
+
+## 快速开始
 
 ```bash
 npm install
-npm run dev
-npm run test
-npm run build
+npm run dev    # 开发服务器（含 frontend mock，无需硬件）
+npm run test   # 运行测试
+npm run build  # 构建
 ```
 
-### 开发进度
+## 开发进度
 
-#### Phase 2: 上位机开发
+- [x] 串口通信层（WebSerial、帧解析、校验和，100+ 测试）
+- [x] 图传解析（灰度→RGBA、丢帧检测、FPS 统计）
+- [x] 日志解析与显示
+- [x] 资源帧解析（CPU/RAM/ROM/速度/舵机）
+- [x] 主仪表板 UI（Overview / Vision / Settings，响应式）
+- [x] 截图 / 录制功能
+- [x] `useTelemetry` composable（串口+数据管理统一入口）
+- [ ] CLI 命令发送面板
+- [ ] 图传 Canvas 直接渲染（当前为 mirror 模式）
+- [ ] Settings 功能实际生效（Channels 开关、Display 设置）
 
-- [x] **Step 1** - 串口通信层 (1776 LOC, 100+ 测试)
-  - [x] WebSerial API 初始化
-  - [x] 字节接收和缓冲
-  - [x] 帧头识别 (0xCC/0xDD/0xEE)
-  - [x] 帧长度解析
-  - [x] 校验和验证
-  
-- [x] **Step 2** - 图传解析与显示 (0xCC, 239 LOC)
-  - [x] 灰度图转 RGBA 格式
-  - [x] 帧缓冲管理
-  - [x] 丢帧检测和统计
-  - [x] 实时 FPS 计算
-  - [ ] Canvas 显示 (Vue 组件)
-  - [ ] 图像缩放和信息显示
+## TODO
 
-- [x] **Step 3** - 日志显示 (0xDD, 190 LOC)
-  - [x] 日志帧解析
-  - [x] 缓冲管理和搜索
-  - [x] 统计信息
-  - [x] 日志窗口 UI (Vue 组件)
-  - [ ] 实时滚动和清空按钮
+- [ ] **实体 MCU 联调测试** — 用真实 STC32G144K 硬件验证三路帧收发、FPS、资源数据准确性；确认波特率 115200 稳定性
+- [ ] **CLI 命令发送** — 实现向 MCU 发送控制指令（对应固件 `value_change` / `get_button_state`）
+- [ ] **图传直接渲染** — 将 `ImageProcessManager` 的 RGBA 数据直接写入 Vision Canvas，替换当前 mirror 方案，解锁真实 FPS 显示
+- [ ] **Settings Channels 开关接入** — 三路帧订阅（0xCC/0xDD/0xEE）响应 Settings 页面开关
+- [ ] **Manager API 统一** — `ImageProcessManager` 改为 `attach/detach` 模式，与 `ResourceManager` 一致
+- [ ] **examples.ts 整理** — 将 `*-examples.ts` 移至 `__tests__/fixtures/`
 
-- [x] **Step 4** - 资源仪表板 (0xEE, 311 LOC, 29 tests)
-  - [x] 资源帧解析
-  - [x] CPU/RAM 占用率管理
-  - [x] 速度和舵机角度处理
-  - [x] 数据缓冲和统计
-  - [x] 时间范围查询
-  - [x] 仪表盘 UI (Vue 组件)
-  - [ ] 图表显示
+## 文档
 
-- [x] **Step 5** - UI/UX 完整实现（进行中）
-  - [x] TelemetryDashboard.vue 主仪表板（总览页）
-  - [x] SettingsView.vue 设置页（左侧导航+右侧内容，响应式）
-    - [x] Serial Connection — 串口配置和连接状态
-    - [x] Display — 主题/FPS/缩放/语言
-    - [x] Channels — 三路遥测开关（0xCC/0xDD/0xEE）
-    - [x] About — 版本信息
-  - [x] ImageViewer.vue 图像显示（Canvas 组件）
-  - [x] LogConsole.vue 日志控制台
-  - [x] ResourceMonitor.vue 资源监控仪表板
-
-### 文档
-
-- [资源显示文档](docs\RESOURCE_API.md) - 资源帧解析和显示
-- [图传文档](docs\IMAGE_API.md) - 图传帧解析和显示
-- [日志文档](docs\LOG_API.md) - 日志帧解析和显示
-- [示例代码](src/serial/examples.ts) - 7个实现示例
-
-
+- [资源帧 API](docs/RESOURCE_API.md)
+- [图传 API](docs/IMAGE_API.md)
+- [日志 API](docs/LOG_API.md)

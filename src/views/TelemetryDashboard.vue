@@ -86,7 +86,7 @@
 
         <section class="vision-pane">
           <div class="pane-head">
-            <span>Vision stream</span><b>-- FPS</b>
+            <span>Vision stream</span><b>{{ imageFps > 0 ? imageFps.toFixed(1) + ' FPS' : '-- FPS' }}</b>
           </div>
           <div class="canvas-wrap">
             <canvas ref="imageCanvas" width="188" height="120" />
@@ -102,14 +102,6 @@
     <VisionView
       v-show="activeTab === 1"
       :canvas-ref="imageCanvas"
-      :mcu-logs="mcuLogs"
-      :current="current"
-      :cpu-points="cpuPoints"
-      :ram-points="ramPoints"
-      :rom-points="romPoints"
-      :speed-points="speedPoints"
-      :network-points="networkPoints"
-      :network-rx-kbps="networkRxKbps"
     />
 
     <!-- 移动端底部导航 -->
@@ -170,7 +162,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { Icon } from "@iconify/vue";
 import SettingsView from "./SettingsView.vue";
 import VisionView from "./VisionView.vue";
@@ -178,16 +170,15 @@ import LogCard from "../components/LogCard.vue";
 import SensorCard from "../components/SensorCard.vue";
 import ServoCard from "../components/ServoCard.vue";
 import { useCanvasAnimation } from "../composables/useCanvasAnimation";
+import { useTelemetry } from "../composables/useTelemetry";
 import { conn } from "../stores/connection";
-import { TelemetrySerialManager } from "../serial/manager";
-import { ResourceManager } from "../serial/resource-manager";
-import { LogProcessManager } from "../serial/log-manager";
-import { startFrontendMock } from "../serial/__tests__/frontend-mock";
 
-const serialManager = new TelemetrySerialManager();
-const resourceManager = new ResourceManager();
-const logManager = new LogProcessManager(serialManager);
-resourceManager.attach(serialManager);
+const {
+  current, mcuLogs, imageFps,
+  cpuPoints, ramPoints, romPoints, speedPoints, networkPoints,
+  networkRxKbps, networkRxLabel,
+  cpuVal, ramVal, romVal, speedMs, servoDeg, servoVisualDeg,
+} = useTelemetry();
 
 const tabs = ["Overview", "Vision", "Settings"];
 const tabIcons = ["lucide:layout-dashboard", "lucide:video", "lucide:settings"];
@@ -231,9 +222,7 @@ const onSettingsHover = () => {
   activeTab.value = 2;
   settingsView.value?.openSheet();
 };
-
 const onBottomTab = (i: number) => {
-  // 窄屏下点设置 tab：若已在设置页则呼出 sheet，否则先切换再呼出
   if (i === 2 && window.innerWidth <= 640) {
     activeTab.value = 2;
     settingsView.value?.openSheet();
@@ -241,65 +230,9 @@ const onBottomTab = (i: number) => {
     activeTab.value = i;
   }
 };
-const HISTORY = 12;
+
 const imageCanvas = ref<HTMLCanvasElement>();
-const imageStats = ref({ fps: 0, droppedFrames: 0 });
-
-// ── 历史点数组 ──
-const cpuPoints     = ref<number[]>([]);
-const ramPoints     = ref<number[]>([]);
-const romPoints     = ref<number[]>([]);
-const speedPoints   = ref<number[]>([]);
-const networkPoints = ref<number[]>([]);
-
-function pushPoint(arr: typeof cpuPoints, v: number) {
-  arr.value = [...arr.value.slice(-(HISTORY - 1)), v];
-}
-
-// STC32G144K256 内存规格
-const XDATA_TOTAL = 16384;
-const EDATA_TOTAL = 8192;
-const RAM_TOTAL   = XDATA_TOTAL + EDATA_TOTAL; // 5120 B
-
-// ── 当前数据（来自 ResourceManager） ──
-const current = ref(resourceManager.getCurrentData());
-const hasSignal = computed(() => current.value !== null);
-
-const cpuVal  = computed(() => hasSignal.value ? current.value!.cpuUsage : null);
-const ramVal  = computed(() => hasSignal.value ? current.value!.ramUsage : null);
-const romVal  = computed(() => {
-  if (!hasSignal.value) return null;
-  const free = current.value!.freeXDATA + current.value!.freeEDATA;
-  return Math.round((1 - free / RAM_TOTAL) * 100);
-});
-const speedMs       = computed(() => hasSignal.value ? (current.value!.speed / 1000).toFixed(2) : null);
-const servoDeg      = computed(() => hasSignal.value ? (current.value!.servoAngle / 10).toFixed(1) : null);
-const servoVisualDeg = computed(() =>
-  hasSignal.value ? Math.max(-42, Math.min(42, current.value!.servoAngle / 10 - 45)) : 0
-);
-
-// ── Network RX：host 端根据收到的帧字节数计算吞吐量 ──
-const networkRxKbps = ref<number | null>(null);
-const networkRxLabel = computed(() => {
-  if (networkRxKbps.value === null) return 'No Signal';
-  const bps = networkRxKbps.value;
-  return bps >= 1024 ? `${(bps / 1024).toFixed(1)} KB/s` : `${Math.round(bps)} B/s`;
-});
-let _rxBytes = 0;
-let _rxLastTs = 0;
-
-function trackRxBytes(bytes: number) {
-  const now = Date.now();
-  if (_rxLastTs === 0) { _rxLastTs = now; }
-  _rxBytes += bytes;
-  const dt = (now - _rxLastTs) / 1000;
-  if (dt >= 1) {
-    networkRxKbps.value = Math.round(_rxBytes / dt * 10) / 10; // bytes/s
-    _rxBytes = 0;
-    _rxLastTs = now;
-    pushPoint(networkPoints, networkRxKbps.value / 1024); // chart in KB/s
-  }
-}
+const { start: startAnim, stop: stopAnim } = useCanvasAnimation(imageCanvas);
 
 const resourceCards = computed(() => [
   { name: "CPU", value: cpuVal.value, unit: "%",  color: "#242424", points: cpuPoints.value },
@@ -307,8 +240,6 @@ const resourceCards = computed(() => [
   { name: "ROM", value: romVal.value, unit: "%",  color: "#c7d54f", points: romPoints.value },
 ]);
 
-// ── MCU logs（来自 LogProcessManager） ──
-const mcuLogs = ref<string[]>([]);
 const hostLogs = ref([
   "[HOST 00:00:00] Trace Vector PC Host started",
   "[HOST 00:00:01] serial manager ready",
@@ -317,50 +248,13 @@ const hostLogs = ref([
   "[HOST 00:00:04] image stream waiting for frame",
 ]);
 
-// ── Canvas 动画 ──
-const { start: startAnim, stop: stopAnim } = useCanvasAnimation(imageCanvas);
-
-let stopMock: (() => void) | undefined;
-
 onMounted(() => {
   window.addEventListener("keydown", onKey);
   startAnim();
-  logManager.start();
-
-  // 订阅所有帧：计算 Network RX 吞吐量 + 更新资源数据
-  serialManager.on((event) => {
-    if (event.type !== 'FRAME') return;
-    const f = event.frame;
-    // 按帧类型统计字节数
-    if (f.type === 'IMAGE')    trackRxBytes(22566);
-    else if (f.type === 'LOG') trackRxBytes(4 + f.length);
-    else if (f.type === 'RESOURCE') {
-      trackRxBytes(18);
-      current.value = resourceManager.getCurrentData();
-      const d = current.value!;
-      pushPoint(cpuPoints, d.cpuUsage);
-      pushPoint(ramPoints, d.ramUsage);
-      pushPoint(speedPoints, d.speed);
-      const free = d.freeXDATA + d.freeEDATA;
-      pushPoint(romPoints, Math.round((1 - free / RAM_TOTAL) * 100));
-    }
-  });
-
-  // 订阅日志帧
-  logManager.on((event) => {
-    if (event.type !== 'LOG_RECEIVED') return;
-    mcuLogs.value = [...mcuLogs.value.slice(-19), event.entry.text];
-  });
-
-  // 开发模式：无硬件时启动 mock
-  stopMock = startFrontendMock(serialManager);
 });
-
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
   stopAnim();
-  logManager.stop();
-  stopMock?.();
 });
 </script>
 
