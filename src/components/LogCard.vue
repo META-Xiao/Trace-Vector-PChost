@@ -22,6 +22,7 @@ defineProps<{ title: string; logs: string[]; connected: boolean }>();
 .log-card {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
 }
 .log-title {
