@@ -35,7 +35,7 @@ export class FrameParseError extends Error {
  */
 export class FrameParser {
   private state: FrameParseState = FrameParseState.WAIT_HEADER;
-  private buffer: Uint8Array = new Uint8Array(FRAME_SIZE.IMAGE);
+  private buffer: Uint8Array = new Uint8Array(FRAME_SIZE.LOG_MAX);
   private bufferPos: number = 0;
   private targetSize: number = 0;
   private currentFrameType: number | null = null;
@@ -140,6 +140,11 @@ export class FrameParser {
       const w = this.buffer[4];
       const h = this.buffer[5];
       this.targetSize = 6 + w * h + 1; // +1 for checksum
+      if (this.buffer.length < this.targetSize) {
+        const grown = new Uint8Array(this.targetSize);
+        grown.set(this.buffer.slice(0, 6));
+        this.buffer = grown;
+      }
     }
 
     if (this.bufferPos < this.targetSize || this.targetSize === 0) {

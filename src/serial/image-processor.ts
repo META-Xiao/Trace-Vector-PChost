@@ -31,15 +31,10 @@ export interface ProcessedImageData {
  */
 export class ImageFrameProcessor {
   private readonly config: ImageProcessingConfig;
-  private pixelBuffer: Uint8ClampedArray;
   private lastProcessedFrame: ProcessedImageData | null = null;
 
   constructor(config: ImageProcessingConfig) {
     this.config = config;
-
-    // 预分配像素缓冲区：RGB灰度为 W×H，转RGBA为 W×H×4
-    const pixelCount = config.imageWidth * config.imageHeight * 4;
-    this.pixelBuffer = new Uint8ClampedArray(pixelCount);
   }
 
   /**
@@ -48,23 +43,29 @@ export class ImageFrameProcessor {
    * @returns 处理后的图像数据
    */
   process(frame: ImageFrame): ProcessedImageData {
-    const { frameId, fpsOut, imageData } = frame;
+    const { frameId, fpsOut, width, height, imageData } = frame;
 
-    if (imageData.length !== this.config.imageWidth * this.config.imageHeight) {
+    if (imageData.length !== width * height) {
       throw new Error(
-        `Invalid image data size: expected ${this.config.imageWidth * this.config.imageHeight}, got ${imageData.length}`,
+        `Invalid image data size: expected ${width * height}, got ${imageData.length}`,
       );
     }
 
-    // 转换灰度图到 RGBA
-    this.grayscaleToRgba(imageData);
+    const pixelData = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < imageData.length; i++) {
+      const g = imageData[i];
+      pixelData[i * 4]     = g;
+      pixelData[i * 4 + 1] = g;
+      pixelData[i * 4 + 2] = g;
+      pixelData[i * 4 + 3] = 255;
+    }
 
     const processed: ProcessedImageData = {
       frameId,
       fpsOut,
-      width: this.config.imageWidth,
-      height: this.config.imageHeight,
-      pixelData: new Uint8ClampedArray(this.pixelBuffer),
+      width,
+      height,
+      pixelData,
       timestamp: Date.now(),
     };
 
@@ -84,23 +85,6 @@ export class ImageFrameProcessor {
    */
   clear(): void {
     this.lastProcessedFrame = null;
-    this.pixelBuffer.fill(0);
-  }
-
-  /**
-   * 私有方法：灰度图转 RGBA
-   * 每个灰度值转换为 RGBA(gray, gray, gray, 255)
-   */
-  private grayscaleToRgba(grayscaleData: Uint8Array): void {
-    for (let i = 0; i < grayscaleData.length; i++) {
-      const grayValue = grayscaleData[i];
-      const rgbaIndex = i * 4;
-
-      this.pixelBuffer[rgbaIndex] = grayValue;      // R
-      this.pixelBuffer[rgbaIndex + 1] = grayValue;  // G
-      this.pixelBuffer[rgbaIndex + 2] = grayValue;  // B
-      this.pixelBuffer[rgbaIndex + 3] = 255;        // A
-    }
   }
 }
 

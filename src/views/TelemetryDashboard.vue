@@ -92,7 +92,7 @@
             <canvas ref="imageCanvas" width="188" height="120" />
           </div>
           <div class="vision-foot">
-            <span>Source 188×120</span><span>--</span>
+            <span>{{ imageSize.w > 0 ? `Source ${imageSize.w}×${imageSize.h}` : 'Source --×--' }}</span><span>--</span>
           </div>
         </section>
       </section>
@@ -233,6 +233,7 @@ const onBottomTab = (i: number) => {
 
 const imageCanvas = ref<HTMLCanvasElement>();
 const { start: startAnim, stop: stopAnim } = useCanvasAnimation(imageCanvas);
+const imageSize = ref({ w: 0, h: 0 });
 let unsubImage: (() => void) | null = null;
 
 function drawNoSignal() {
@@ -272,6 +273,7 @@ onMounted(() => {
     const ctx = c?.getContext('2d');
     if (!c || !ctx) return;
     const { width, height, pixelData } = event.data;
+    imageSize.value = { w: width, h: height };
     c.width = width;
     c.height = height;
     ctx.putImageData(new ImageData(pixelData, width, height), 0, 0);
