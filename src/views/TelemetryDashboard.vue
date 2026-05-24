@@ -17,20 +17,44 @@
         :class="conn.connected ? 'online' : 'offline'"
         @mouseenter="avatarOpen = true"
         @mouseleave="avatarOpen = false"
-        @click="avatarOpen = !avatarOpen"
+        @click.stop="avatarOpen = !avatarOpen"
       >
         {{ conn.connected ? conn.mcuName.slice(0, 2) + '.' : 'TV' }}
         <Transition name="popup">
-          <div v-if="avatarOpen" class="avatar-popup">
+          <div v-if="avatarOpen" class="avatar-popup connection-popup" @click.stop>
             <div class="popup-status" :class="conn.connected ? 'online' : 'offline'">
               {{ conn.connected ? 'Online' : 'Offline' }}
             </div>
-            <div v-if="conn.connected">
+            <div v-if="conn.connected" class="connected-panel">
               <div class="popup-row"><span>Device</span><b>{{ conn.mcuName }}</b></div>
-              <div class="popup-row"><span>Port</span><b>{{ conn.portLabel }}</b></div>
+              <div class="popup-row"><span>Link</span><b>{{ conn.portLabel }}</b></div>
               <div class="popup-row"><span>Uptime</span><b>{{ uptime }}</b></div>
+              <button class="popup-action danger" @click="disconnectActive">Disconnect</button>
             </div>
-            <div v-else class="popup-hint">No MCU connected</div>
+            <div v-else class="connect-panel">
+              <button
+                v-for="channel in serialChannels"
+                :key="channel.id"
+                class="connect-channel"
+                :class="{ active: serialDraft.channel === channel.id }"
+                @click="serialDraft.channel = channel.id"
+              >
+                <Icon :icon="channel.icon" />
+                <span>{{ channel.label }}</span>
+              </button>
+
+              <div v-if="serialDraft.channel === 'usb_cdc'" class="connect-detail">
+                <span>USB Virtual COM</span>
+              </div>
+              <div v-else-if="serialDraft.channel === 'uart'" class="connect-detail">
+                <input v-model.number="serialDraft.baud" class="popup-input" placeholder="115200" type="number" min="1200" max="4000000" />
+              </div>
+              <div v-else class="connect-detail">
+                <input v-model="serialDraft.wifiEndpoint" class="popup-input" placeholder="192.168.4.1:8080" />
+              </div>
+
+              <button class="popup-action" @click="connectActive">Connect</button>
+            </div>
           </div>
         </Transition>
       </div>
@@ -130,16 +154,40 @@
       <!-- Mobile avatar popup — fixed above bottom-nav -->
       <Teleport to="body">
         <Transition name="popup">
-          <div v-if="mobileAvatarOpen" class="avatar-popup-m-fixed" @click.stop>
+          <div v-if="mobileAvatarOpen" class="avatar-popup-m-fixed connection-popup" @click.stop>
             <div class="popup-status" :class="conn.connected ? 'online' : 'offline'">
               {{ conn.connected ? 'Online' : 'Offline' }}
             </div>
-            <div v-if="conn.connected">
+            <div v-if="conn.connected" class="connected-panel">
               <div class="popup-row"><span>Device</span><b>{{ conn.mcuName }}</b></div>
-              <div class="popup-row"><span>Port</span><b>{{ conn.portLabel }}</b></div>
+              <div class="popup-row"><span>Link</span><b>{{ conn.portLabel }}</b></div>
               <div class="popup-row"><span>Uptime</span><b>{{ uptime }}</b></div>
+              <button class="popup-action danger" @click="disconnectActive">Disconnect</button>
             </div>
-            <div v-else class="popup-hint">No MCU connected</div>
+            <div v-else class="connect-panel">
+              <button
+                v-for="channel in serialChannels"
+                :key="channel.id"
+                class="connect-channel"
+                :class="{ active: serialDraft.channel === channel.id }"
+                @click="serialDraft.channel = channel.id"
+              >
+                <Icon :icon="channel.icon" />
+                <span>{{ channel.label }}</span>
+              </button>
+
+              <div v-if="serialDraft.channel === 'usb_cdc'" class="connect-detail">
+                <span>USB Virtual COM</span>
+              </div>
+              <div v-else-if="serialDraft.channel === 'uart'" class="connect-detail">
+                <input v-model.number="serialDraft.baud" class="popup-input" placeholder="115200" type="number" min="1200" max="4000000" />
+              </div>
+              <div v-else class="connect-detail">
+                <input v-model="serialDraft.wifiEndpoint" class="popup-input" placeholder="192.168.4.1:8080" />
+              </div>
+
+              <button class="popup-action" @click="connectActive">Connect</button>
+            </div>
           </div>
         </Transition>
       </Teleport>
@@ -162,7 +210,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { Icon } from "@iconify/vue";
 import SettingsView from "./SettingsView.vue";
 import VisionView from "./VisionView.vue";
@@ -174,7 +222,7 @@ import { useTelemetry } from "../composables/useTelemetry";
 import { conn } from "../stores/connection";
 
 const {
-  current, mcuLogs, imageFps, imageManager,
+  current, mcuLogs, imageFps, imageManager, serialManager,
   cpuPoints, ramPoints, romPoints, speedPoints, networkPoints,
   networkRxKbps, networkRxLabel,
   cpuVal, ramVal, romVal, speedMs, servoDeg, servoVisualDeg,
@@ -211,12 +259,60 @@ const onKey = (e: KeyboardEvent) => {
 const avatarOpen = ref(false);
 const mobileAvatarOpen = ref(false);
 const now = ref(Date.now());
+let nowTimer: ReturnType<typeof setInterval> | null = null;
+type SerialChannelId = "usb_cdc" | "uart" | "wifi";
+const serialChannels: { id: SerialChannelId; label: string; icon: string }[] = [
+  { id: "usb_cdc", label: "USB-CDC", icon: "lucide:usb" },
+  { id: "uart", label: "UART", icon: "lucide:cable" },
+  { id: "wifi", label: "WIFI", icon: "lucide:wifi" },
+];
+const serialDraft = reactive({
+  channel: "usb_cdc" as SerialChannelId,
+  baud: 115200,
+  wifiEndpoint: "192.168.4.1:8080",
+});
 const uptime = computed(() => {
   if (!conn.connectedAt) return "";
   const s = Math.floor((now.value - conn.connectedAt) / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
 });
+
+async function connectActive() {
+  try {
+    if (serialDraft.channel === "wifi") {
+      conn.connected = true;
+      conn.connectedAt = Date.now();
+      conn.mcuName = serialDraft.wifiEndpoint;
+      conn.portLabel = `WIFI ${serialDraft.wifiEndpoint}`;
+    } else {
+      await serialManager.selectPort();
+      await serialManager.connect(serialDraft.baud);
+      conn.portLabel = serialDraft.channel === "usb_cdc"
+        ? `USB-CDC ${serialDraft.baud}`
+        : `UART ${serialDraft.baud}`;
+    }
+    avatarOpen.value = false;
+    mobileAvatarOpen.value = false;
+  } catch (error) {
+    console.error("Connect failed:", error);
+  }
+}
+
+async function disconnectActive() {
+  try {
+    if (serialManager.isConnected()) {
+      await serialManager.disconnect();
+    } else {
+      conn.connected = false;
+      conn.connectedAt = null;
+      conn.mcuName = "";
+      conn.portLabel = "";
+    }
+  } catch (error) {
+    console.error("Disconnect failed:", error);
+  }
+}
 
 const onSettingsHover = () => {
   activeTab.value = 2;
@@ -265,6 +361,7 @@ const hostLogs = ref([
 
 onMounted(() => {
   window.addEventListener("keydown", onKey);
+  nowTimer = setInterval(() => { now.value = Date.now(); }, 1000);
   drawNoSignal();
   unsubImage = imageManager.on((event) => {
     if (event.type !== 'IMAGE_RECEIVED') return;
@@ -281,6 +378,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
+  if (nowTimer) clearInterval(nowTimer);
   stopAnim();
   unsubImage?.();
 });
@@ -496,6 +594,101 @@ onUnmounted(() => {
 }
 .popup-row b { color: var(--text); font-weight: 600; }
 .popup-hint { color: var(--text-muted); font-size: 12px; }
+.connection-popup {
+  min-width: 280px;
+  white-space: normal;
+}
+.connect-panel,
+.connected-panel {
+  display: grid;
+  gap: 10px;
+}
+.connect-panel {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.connect-channel {
+  min-height: 58px;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.connect-channel svg {
+  font-size: 18px;
+}
+.connect-channel.active {
+  border-color: rgba(32, 184, 166, 0.55);
+  color: #0e8a7e;
+  background: rgba(32, 184, 166, 0.1);
+}
+.connect-detail {
+  grid-column: 1 / -1;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.baud-strip {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.baud-strip button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.baud-strip button.active {
+  background: #20b8a6;
+  color: #fff;
+}
+.popup-input {
+  width: 100%;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 800;
+}
+.popup-input:focus {
+  outline: none;
+  border-color: #20b8a6;
+}
+.popup-action {
+  grid-column: 1 / -1;
+  border: 0;
+  border-radius: 12px;
+  min-height: 36px;
+  background: var(--text);
+  color: var(--card-bg);
+  font-weight: 900;
+  cursor: pointer;
+}
+.popup-action.danger {
+  margin-top: 4px;
+  background: #ef4444;
+  color: #fff;
+}
 .popup-enter-active, .popup-leave-active { transition: opacity 150ms, transform 150ms; }
 .popup-enter-from, .popup-leave-to { opacity: 0; transform: translateY(-4px) scale(0.97); }
 .main {

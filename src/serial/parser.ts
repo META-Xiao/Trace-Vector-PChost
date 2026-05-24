@@ -9,6 +9,7 @@ import {
   calculateChecksum,
   verifyChecksum,
 } from './protocol';
+import { resourceSlots, SLOT_BYTES } from '../stores/resourceSlots';
 
 /**
  * 帧解析错误
@@ -256,52 +257,41 @@ export class FrameParser {
   }
 
   /**
-   * 读资源帧数据：cpu(1) + ram(1) + xdata(2) + edata(2) + speed(2) + servo(2) + reserved(6) + checksum(1)
+   * 读资源帧数据：按 resourceSlots 动态解析
    */
   private handleResourceData(byte: number): TelemetryFrame | null {
     this.buffer[this.bufferPos++] = byte;
 
     if (this.bufferPos < this.targetSize) {
-      return null; // 继续读取
+      return null;
     }
 
-    const cpuUsage = this.buffer[0];
-    const ramUsage = this.buffer[1];
-    const freeHeap  = (this.buffer[2] << 8) | this.buffer[3];
-    const freeStack = (this.buffer[4] << 8) | this.buffer[5];
-    const ramTotal  = (this.buffer[6] << 8) | this.buffer[7];
-    const speed = ((this.buffer[8] & 0x80) ? -(0x10000 - ((this.buffer[8] << 8) | this.buffer[9])) : ((this.buffer[8] << 8) | this.buffer[9]));
-    const servoAngle = ((this.buffer[10] & 0x80) ? -(0x10000 - ((this.buffer[10] << 8) | this.buffer[11])) : ((this.buffer[10] << 8) | this.buffer[11]));
-    const reserved = this.buffer.slice(12, 16);
-    const checksum = this.buffer[16];
-
-    // 校验：MCU 的 checksum 包含帧头字节 0xEE
-    const dataToCheck = new Uint8Array(1 + 16);
+    const checksum = this.buffer[this.bufferPos - 1];
+    const dataToCheck = new Uint8Array(1 + this.bufferPos - 1);
     dataToCheck[0] = FRAME_TYPE.RESOURCE;
-    dataToCheck.set(this.buffer.slice(0, 16), 1);
+    dataToCheck.set(this.buffer.slice(0, this.bufferPos - 1), 1);
     if (!verifyChecksum(dataToCheck, checksum)) {
-      throw new FrameParseError(
-        'RESOURCE_CHECKSUM_ERROR',
-        `Resource frame checksum mismatch`,
-      );
+      throw new FrameParseError('RESOURCE_CHECKSUM_ERROR', 'Resource frame checksum mismatch');
+    }
+
+    const view = new DataView(this.buffer.buffer, this.buffer.byteOffset);
+    const res: number[] = [];
+    let offset = 0;
+    for (const slot of resourceSlots) {
+      const bytes = SLOT_BYTES[slot.type];
+      if (offset + bytes > this.bufferPos - 1) break;
+      switch (slot.type) {
+        case 'u8':  res.push(this.buffer[offset]); break;
+        case 'u16': res.push(view.getUint16(offset, false)); break;
+        case 'i16': res.push(view.getInt16(offset, false)); break;
+        case 'u32': res.push(view.getUint32(offset, false)); break;
+        case 'i32': res.push(view.getInt32(offset, false)); break;
+      }
+      offset += bytes;
     }
 
     this.resetState();
-
-    const frame: ResourceFrame = {
-      type: 'RESOURCE',
-      cpuUsage,
-      ramUsage,
-      freeHeap,
-      freeStack,
-      ramTotal,
-      speed,
-      servoAngle,
-      reserved,
-      checksum,
-    };
-
-    return frame;
+    return { type: 'RESOURCE', res, checksum } as ResourceFrame;
   }
 
   /**

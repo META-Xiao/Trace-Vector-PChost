@@ -9,11 +9,11 @@
       <!-- 左侧导航 -->
       <nav class="settings-nav">
         <button
-          v-for="(section, i) in sections"
+          v-for="section in sections"
           :key="section.id"
-          :class="{ active: activeSection === i }"
-          @click="handleNavClick(i)"
-          @pointerdown="startLongPress(i)"
+          :class="{ active: activeSection === section.id }"
+          @click="handleNavClick(section.id)"
+          @pointerdown="startLongPress(section.id)"
           @pointerup="endLongPress"
           @pointerleave="endLongPress"
         >
@@ -24,83 +24,151 @@
 
       <!-- 右侧内容 -->
       <div class="settings-content">
-        <!-- Serial Connection -->
-        <section v-show="activeSection === 0" class="section-card">
-          <h2>Serial Connection</h2>
+        <!-- Resource Frame -->
+        <section v-show="activeSection === 'resources'" class="section-card">
+          <h2>Resource Frame</h2>
+          <p class="section-desc">
+            Each slot maps to consecutive bytes in the 0xEE frame. Use <code>res[id]</code> in expressions.
+          </p>
 
-          <!-- Channel selector -->
-          <div class="channel-tabs">
-            <button
-              v-for="ch in serialChannels"
-              :key="ch.id"
-              :class="{ active: serial.channel === ch.id }"
-              @click="serial.channel = ch.id"
+          <!-- Byte map -->
+          <div class="rf-bytemap">
+            <div class="rf-bytemap-label">0xEE</div>
+            <div
+              v-for="slot in resourceSlots"
+              :key="slot.id"
+              class="rf-bytemap-seg"
+              :class="{ active: selectedSlot === slot.id, on: slot.enabled }"
+              :style="{ flex: SLOT_BYTES[slot.type] }"
+              @click.stop="selectedSlot = selectedSlot === slot.id ? -1 : slot.id"
+              :title="`res[${slot.id}] · ${slot.label}`"
             >
-              {{ ch.label }}
-            </button>
+              <button
+                v-if="slot.enabled"
+                class="rf-seg-close"
+                @click.stop="slot.enabled = false; if (selectedSlot === slot.id) selectedSlot = -1"
+              ><Icon icon="lucide:x" /></button>
+              <button
+                v-else
+                class="rf-seg-add"
+                @click.stop="slot.enabled = true"
+              ><Icon icon="lucide:plus" /></button>
+              <span class="rf-bytemap-name">{{ slot.label }}</span>
+              <span class="rf-bytemap-sz">{{ slot.type }}</span>
+            </div>
+            <!-- Reserved remainder -->
+            <div
+              v-if="reservedBytes > 0"
+              class="rf-bytemap-seg rf-bytemap-reserved"
+              :style="{ flex: reservedBytes }"
+            >
+              <button class="rf-seg-add" @click.stop="addSlot"><Icon icon="lucide:plus" /></button>
+              <span class="rf-bytemap-name">Rsv</span>
+              <span class="rf-bytemap-sz">{{ reservedBytes }}B</span>
+            </div>
+            <div class="rf-bytemap-seg chk"><span class="rf-bytemap-name">CHK</span><span class="rf-bytemap-sz">1B</span></div>
           </div>
 
-          <!-- USB-CDC: no config needed -->
-          <div v-if="serial.channel === 'usb_cdc'" class="field-group">
-            <p class="section-desc" style="margin: 0">
-              USB Virtual COM — no port configuration required. Connect the MCU
-              via USB and click Connect.
-            </p>
-          </div>
+          <!-- Slot editor -->
+          <Transition name="resource-panel">
+            <div v-if="selectedSlot >= 0" class="rf-dropdown">
+              <template v-for="slot in resourceSlots" :key="slot.id">
+                <template v-if="slot.id === selectedSlot">
+                  <div class="rf-dd-header">
+                    <code class="rf-dd-id">res[{{ slot.id }}]</code>
+                    <span class="rf-dd-type-group">
+                      <button v-for="t in SLOT_TYPES" :key="t" class="rf-size-btn" :class="{ active: slot.type === t }" @click="slot.type = t">{{ t }}</button>
+                    </span>
+                    <button v-if="slot.id >= DEFAULT_SLOT_COUNT" class="rf-dd-remove" @click="removeSlot(slot.id); selectedSlot = -1"><Icon icon="lucide:trash-2" /></button>
+                  </div>
 
-          <!-- UART -->
-          <div v-else-if="serial.channel === 'uart'" class="field-group">
-            <div class="field">
-              <label>Port</label>
-              <div style="display:flex;gap:8px;align-items:center">
-                <span style="font-size:13px;color:var(--text-muted)">{{ serial.portLabel || 'Not selected' }}</span>
-                <button class="action-btn" @click="selectPort">Select Port</button>
+                  <div class="rf-dd-row">
+                    <span class="rf-dd-key">Label</span>
+                    <input class="rf-inline-input" v-model="slot.label" placeholder="e.g. CPU" />
+                    <span class="rf-dd-key" style="margin-left:12px">Unit</span>
+                    <input class="rf-inline-input rf-unit-input" v-model="slot.unit" placeholder="%" />
+                  </div>
+
+                  <div class="rf-dd-row rf-dd-expr-row">
+                    <span class="rf-dd-key">Expr</span>
+                    <div class="rf-expr-wrap">
+                      <input
+                        class="rf-inline-input rf-expr-input"
+                        v-model="slot.expr"
+                        placeholder="res[0]"
+                        spellcheck="false"
+                      />
+                      <div class="rf-expr-hints">
+                        <button v-for="v in envVars" :key="v.key" class="rf-hint-chip" @click="slot.expr += v.key" :title="v.desc">{{ v.key }}</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="rf-dd-row rf-dd-chart-row">
+                    <span class="rf-dd-key">Chart</span>
+                    <div class="chart-choice-grid">
+                      <button v-for="mode in chartModes" :key="mode.id" :class="{ active: slot.chart === mode.id }" @click="slot.chart = mode.id">
+                        <Icon :icon="mode.icon" /><span>{{ mode.label }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="resource-preview" :data-chart="slot.chart">
+                    <span v-for="n in 20" :key="n" :style="{ height: previewBarHeight(slot.id, slot.chart, n) }" />
+                  </div>
+                </template>
+              </template>
+            </div>
+          </Transition>
+
+          <!-- Formula tips -->
+          <Transition name="resource-panel">
+            <div v-if="showTips" class="rf-tips">
+              <div class="rf-tips-header">
+                <span>Expression Reference</span>
+                <button class="rf-tips-close" @click="showTips = false"><Icon icon="lucide:x" /></button>
+              </div>
+              <div class="rf-tips-grid">
+                <code>res[0]</code><span>raw value of slot 0</span>
+                <code>res[5] / 1000.0</code><span>Speed mm/s → m/s</span>
+                <code>res[6] / 10.0</code><span>Servo angle ×0.1°</span>
+                <code>res[2] / RAM_TOTAL * 100</code><span>FreeHeap as % of total</span>
+                <code>(ROM_TOTAL - res[2]) / ROM_TOTAL * 100</code><span>ROM used %</span>
+                <code>res[3] - 273</code><span>Kelvin → Celsius</span>
+                <code>(res[4] &lt;&lt; 8) | res[5]</code><span>combine two u8 slots</span>
               </div>
             </div>
-            <div class="field">
-              <label>Baud Rate</label>
-              <AppSelect v-model="serial.baud" :options="baudOptions" />
-            </div>
-            <p class="section-desc" style="margin-top: 4px">
-              Frame format fixed at 8N1 (set by MCU library).
-            </p>
-          </div>
+          </Transition>
 
-          <!-- WIFI -->
-          <div v-else-if="serial.channel === 'wifi'" class="field-group">
-            <div class="field">
-              <label>Host IP</label>
-              <input
-                class="text-input"
-                v-model="serial.wifiHost"
-                placeholder="192.168.4.1"
-              />
-            </div>
-            <div class="field">
-              <label>Port</label>
-              <input
-                class="text-input"
-                v-model.number="serial.wifiPort"
-                type="number"
-                placeholder="8080"
-              />
-            </div>
-            <p class="section-desc" style="margin-top: 4px">
-              WIFI channel shares the same frame protocol (0xCC/0xDD/0xEE).
-            </p>
+          <div class="rf-footer">
+            <span class="rf-footer-info">{{ totalBytes }}B / 17B used</span>
+            <button class="rf-reset-btn" style="margin-right:auto;margin-left:8px" @click="showTips = !showTips">
+              <Icon icon="lucide:book-open" /> Tips
+            </button>
+            <button class="rf-reset-btn" @click="resetToDefault">Reset to default</button>
           </div>
+        </section>
 
-          <div class="status-bar" :class="serial.connected ? 'ok' : 'idle'">
-            <span class="dot" />
-            <span>{{ serial.connected ? "Connected" : "Disconnected" }}</span>
-            <button class="action-btn" @click="toggleConnect">
-              {{ serial.connected ? "Disconnect" : "Connect" }}
+        <!-- Env Variables -->
+        <section v-show="activeSection === 'env'" class="section-card">
+          <h2>Environment Variables</h2>
+          <p class="section-desc">Named constants available in resource frame expressions.</p>
+          <div class="env-list">
+            <div v-for="(v, i) in envVars" :key="i" class="env-row">
+              <input class="rf-inline-input env-key" v-model="v.key" placeholder="KEY" spellcheck="false" />
+              <span class="env-eq">=</span>
+              <input class="rf-inline-input env-val" v-model.number="v.value" type="number" />
+              <input class="rf-inline-input env-desc" v-model="v.desc" placeholder="description" />
+              <button class="rf-dd-remove" @click="envVars.splice(i, 1)"><Icon icon="lucide:trash-2" /></button>
+            </div>
+            <button class="rf-reset-btn" @click="envVars.push({ key: 'NEW_VAR', value: 0, desc: '' })">
+              <Icon icon="lucide:plus" /> Add variable
             </button>
           </div>
         </section>
 
         <!-- Display -->
-        <section v-show="activeSection === 1" class="section-card">
+        <section v-show="activeSection === 'display'" class="section-card">
           <h2>Display</h2>
           <div class="field-group">
             <div class="field">
@@ -152,7 +220,7 @@
         </section>
 
         <!-- Channels -->
-        <section v-show="activeSection === 2" class="section-card">
+        <section v-show="activeSection === 'channels'" class="section-card">
           <h2>Telemetry Channels</h2>
           <p class="section-desc">
             Enable or disable individual data streams from the MCU.
@@ -175,7 +243,7 @@
         </section>
 
         <!-- About -->
-        <section v-show="activeSection === 3" class="section-card">
+        <section v-show="activeSection === 'about'" class="section-card">
           <h2>About</h2>
           <div class="about-grid">
             <div class="about-row">
@@ -215,10 +283,10 @@
             <p class="sheet-title">Settings</p>
             <div class="sheet-list">
               <button
-                v-for="(section, i) in sections"
+                v-for="section in sections"
                 :key="section.id"
-                :class="{ active: activeSection === i }"
-                @click="selectSection(i)"
+                :class="{ active: activeSection === section.id }"
+                @click="selectSection(section.id)"
               >
                 <span class="sheet-icon"><Icon :icon="section.icon" /></span>
                 <span>{{ section.label }}</span>
@@ -232,20 +300,21 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch, computed, onMounted, onUnmounted } from "vue";
+import { reactive, ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { Icon } from "@iconify/vue";
 import AppSelect from "../components/AppSelect.vue";
-import { conn } from "../stores/connection";
-import { usePlatform } from "../composables/usePlatform";
-import { serialManager } from "../composables/useTelemetry";
+import { resourceSlots, SLOT_BYTES, FRAME_BODY_BYTES, resetToDefault, type SlotType } from "../stores/resourceSlots";
+import { envVars } from "../stores/envVars";
 
 const sections = [
-  { id: "serial", icon: "lucide:cable", label: "Serial" },
-  { id: "display", icon: "lucide:monitor", label: "Display" },
-  { id: "channels", icon: "lucide:layers", label: "Channels" },
-  { id: "about", icon: "lucide:info", label: "About" },
-];
-const activeSection = ref(0);
+  { id: "resources", icon: "lucide:activity",  label: "Resources" },
+  { id: "env",       icon: "lucide:variable",   label: "Env" },
+  { id: "display",   icon: "lucide:monitor",    label: "Display" },
+  { id: "channels",  icon: "lucide:layers",     label: "Channels" },
+  { id: "about",     icon: "lucide:info",       label: "About" },
+] as const;
+type SectionId = typeof sections[number]["id"];
+const activeSection = ref<SectionId>("resources");
 const sheetOpen = ref(false);
 const sheetY = ref(0);
 
@@ -257,20 +326,20 @@ let sheetHandleEl: HTMLElement | null = null;
 
 const isNarrowScreen = () => window.innerWidth <= 900;
 
-const handleNavClick = (i: number) => {
+const handleNavClick = (id: SectionId) => {
   // 清除长按计时器，因为已经点击了
   if (longPressTimer) {
     clearTimeout(longPressTimer);
     longPressTimer = null;
   }
-  activeSection.value = i;
+  activeSection.value = id;
 };
 
-const startLongPress = (i: number) => {
+const startLongPress = (id: SectionId) => {
   if (!isNarrowScreen()) return;
 
   longPressTimer = setTimeout(() => {
-    activeSection.value = i;
+    activeSection.value = id;
     openSheet();
   }, 500);
 };
@@ -285,8 +354,8 @@ const openSheet = () => {
   sheetY.value = 0;
 };
 
-const selectSection = (i: number) => {
-  activeSection.value = i;
+const selectSection = (id: SectionId) => {
+  activeSection.value = id;
   sheetOpen.value = false;
 };
 
@@ -349,62 +418,51 @@ onUnmounted(() => {
   systemMq?.removeEventListener("change", onSystemChange);
 });
 
-const { platform } = usePlatform();
-const serialChannels = computed(() => {
-  const all = [
-    { id: "usb_cdc", label: "USB-CDC" },
-    { id: "uart", label: "UART" },
-    { id: "wifi", label: "WIFI" },
-  ];
-  return platform.value === "android" ? all.filter(c => c.id === "wifi") : all;
-});
-
-watch(platform, (p) => {
-  if (p === "android" && serial.channel !== "wifi") serial.channel = "wifi";
-});
-
-const USB_VENDORS: Record<number, string> = {
-  0x1a86: "CH340", 0x0403: "FTDI", 0x10c4: "CP210x", 0x2341: "Arduino",
-  0x0483: "STM32", 0x2e8a: "RP2040",
-};
-
-async function selectPort() {
-  if (!("serial" in navigator)) return;
-  try {
-    const port = await (navigator as any).serial.requestPort();
-    const all = await (navigator as any).serial.getPorts();
-    const info = port.getInfo?.() ?? {};
-    const vid: number | undefined = info.usbVendorId;
-    const pid: number | undefined = info.usbProductId;
-    const name = vid ? (USB_VENDORS[vid] ?? "USB") : "Serial Port";
-    const id = vid ? ` (${vid.toString(16).padStart(4,"0")}:${pid?.toString(16).padStart(4,"0") ?? "???"})` : "";
-    const sameVid = all.filter((p: any) => p.getInfo?.()?.usbVendorId === vid);
-    const idx = sameVid.findIndex((p: any) => p === port);
-    const suffix = sameVid.length > 1 ? ` #${idx + 1}` : "";
-    serial.portLabel = `${name}${suffix}${id}`;
-    serial.portHandle = port;
-  } catch {
-    // user cancelled
-  }
-}
-const baudOptions = [
-  9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600,
-].map((b) => ({ value: b, label: String(b) }));
 const langOptions = [
   { value: "en", label: "English" },
   { value: "zh", label: "Simplified Chinese" },
 ];
 
-const serial = reactive({
-  channel: "usb_cdc",
-  port: "",
-  portLabel: "",
-  portHandle: null as any,
-  baud: 115200,
-  wifiHost: "192.168.4.1",
-  wifiPort: 8080,
-  connected: false,
-});
+type ChartModeId = "line" | "delta" | "bar" | "number";
+
+const chartModes: { id: ChartModeId; label: string; icon: string }[] = [
+  { id: "line",   label: "Line",  icon: "lucide:chart-no-axes-combined" },
+  { id: "delta",  label: "Delta", icon: "lucide:diff" },
+  { id: "bar",    label: "Bars",  icon: "lucide:chart-column" },
+  { id: "number", label: "Value", icon: "lucide:badge-gauge" },
+];
+
+const SLOT_TYPES: SlotType[] = ["u8", "u16", "i16", "u32", "i32"];
+const DEFAULT_SLOT_COUNT = 5; // 固定协议字段数量
+
+const totalBytes = computed(() => resourceSlots.reduce((s, sl) => s + SLOT_BYTES[sl.type], 0));
+const reservedBytes = computed(() => Math.max(0, FRAME_BODY_BYTES - 1 - totalBytes.value)); // -1 for checksum already excluded
+
+const selectedSlot = ref(-1);
+const showTips = ref(false);
+
+const addSlot = () => {
+  const rem = reservedBytes.value;
+  if (rem <= 0) return;
+  const type: SlotType = rem >= 2 ? "u16" : "u8";
+  const id = resourceSlots.length;
+  resourceSlots.push({ id, label: `Custom${id}`, type, expr: `res[${id}]`, unit: "", chart: "number", enabled: true });
+};
+
+const removeSlot = (id: number) => {
+  const idx = resourceSlots.findIndex(s => s.id === id);
+  if (idx >= DEFAULT_SLOT_COUNT) resourceSlots.splice(idx, 1);
+};
+
+const previewBarHeight = (id: number, chart: ChartModeId, n: number) => {
+  const base = 22 + ((id * 31 + n * 17) % 46);
+  if (chart === "number") return "68px";
+  if (chart === "bar") return `${base}px`;
+  const wave = Math.sin((n / 20) * Math.PI * 2 + id) * 20;
+  const delta = chart === "delta" ? Math.abs(Math.sin((n / 20) * Math.PI * 3 + id)) * 40 : 0;
+  return `${Math.max(4, Math.round(base * 0.6 + wave + delta))}px`;
+};
+
 const display = reactive({
   theme: "system",
   fpsCap: 30,
@@ -458,23 +516,6 @@ const channels = reactive([
 const onLangChange = (v: string | number) => {
   if (v === "zh") { alert("Chinese localization is not yet available."); return; }
   display.lang = String(v);
-};
-
-const toggleConnect = async () => {
-  if (serial.connected) {
-    await serialManager.disconnect();
-    serial.connected = false;
-  } else {
-    try {
-      await serialManager.selectPort();
-      await serialManager.connect(serial.baud);
-      serial.connected = true;
-      conn.portLabel = serial.portLabel || serial.channel.toUpperCase();
-      conn.mcuName = "MCU";
-    } catch (e) {
-      console.error("Connect failed:", e);
-    }
-  }
 };
 </script>
 
@@ -588,6 +629,481 @@ h1 {
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* ── Resource frame redesign ── */
+.rf-bytemap {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  margin-bottom: 10px;
+  height: 52px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+}
+
+.rf-bytemap-label {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #20b8a6;
+  background: rgba(32, 184, 166, 0.1);
+  border-radius: 8px;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+}
+
+.rf-bytemap-seg {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: border-color 150ms, background 150ms, opacity 150ms;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rf-bytemap-seg.active {
+  border-color: #20b8a6;
+  background: rgba(32, 184, 166, 0.1);
+}
+
+.rf-bytemap-seg:not(.on):not(.chk) {
+  opacity: 0.32;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(128,128,128,0.06) 4px,
+    rgba(128,128,128,0.06) 8px
+  );
+}
+
+.rf-bytemap-seg.rf-bytemap-reserved {
+  cursor: default;
+  opacity: 0.5;
+  border-style: dashed;
+  border-color: var(--card-border);
+}
+
+.rf-bytemap-seg.rf-bytemap-reserved .rf-seg-add {
+  position: static;
+  opacity: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(32, 184, 166, 0.15);
+  color: #20b8a6;
+  border: 1px solid rgba(32, 184, 166, 0.4);
+  font-size: 12px;
+}
+
+.rf-bytemap-seg.rf-bytemap-reserved .rf-seg-add:hover {
+  background: rgba(32, 184, 166, 0.3);
+}
+
+.rf-bytemap-seg.chk {
+  cursor: default;
+  opacity: 0.4;
+  flex: 1;
+}
+
+.rf-seg-close,
+.rf-seg-add {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 9px;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 120ms, background 120ms;
+}
+
+.rf-bytemap-seg:hover .rf-seg-close,
+.rf-bytemap-seg:hover .rf-seg-add {
+  opacity: 1;
+}
+
+.rf-seg-close:hover { background: rgba(239,68,68,0.2); color: #ef4444; }
+.rf-seg-add:hover   { background: rgba(32,184,166,0.2); color: #20b8a6; }
+
+.rf-bytemap-name {
+  font-size: 9px;
+  font-weight: 900;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 0 4px;
+}
+
+.rf-bytemap-sz {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* Dropdown panel */
+.rf-dropdown {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1.5px solid rgba(32, 184, 166, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.rf-dd-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rf-dd-chart-row {
+  align-items: start;
+}
+
+.rf-dd-key {
+  font-size: 11px;
+  font-weight: 900;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  color: var(--text-dim);
+  width: 40px;
+  flex-shrink: 0;
+}
+
+.rf-dd-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  margin-left: auto;
+}
+
+.rf-label-wrap { min-width: 0; }
+
+.rf-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: text;
+  outline: none;
+  border: 1.5px solid transparent;
+  transition: border-color 120ms, background 120ms;
+}
+
+.rf-label:hover,
+.rf-label:focus {
+  border-color: var(--card-border);
+  background: var(--card-bg);
+}
+
+.rf-label-input {
+  font-size: 13px;
+  font-weight: 800;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1.5px solid #20b8a6;
+  border-radius: 6px;
+  padding: 3px 7px;
+  outline: none;
+  width: 140px;
+}
+
+.rf-size-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.rf-size-btn {
+  font-size: 10px;
+  font-weight: 900;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  padding: 4px 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+  white-space: nowrap;
+}
+
+.rf-size-btn.active {
+  background: rgba(32, 184, 166, 0.15);
+  border-color: rgba(32, 184, 166, 0.5);
+  color: #20b8a6;
+}
+
+.resource-panel { padding: 0; }
+
+.chart-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chart-choice-grid button {
+  min-height: 58px;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.chart-choice-grid button svg {
+  font-size: 18px;
+}
+
+.chart-choice-grid button.active {
+  border-color: rgba(32, 184, 166, 0.55);
+  color: #0e8a7e;
+  background: rgba(32, 184, 166, 0.1);
+}
+
+.resource-preview {
+  height: 86px;
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  padding: 12px;
+  border-radius: 14px;
+  background:
+    linear-gradient(rgba(32, 184, 166, 0.08) 1px, transparent 1px),
+    var(--card-bg);
+  background-size: 100% 22px;
+}
+
+.resource-preview span {
+  flex: 1;
+  min-width: 4px;
+  border-radius: 999px 999px 2px 2px;
+  background: #20b8a6;
+  opacity: 0.72;
+}
+
+/* line: thin bars with wave shape */
+.resource-preview[data-chart="line"] span {
+  border-radius: 2px;
+  opacity: 0.6;
+}
+
+/* delta: alternating positive/negative, accent color shift */
+.resource-preview[data-chart="delta"] span {
+  background: #6366f1;
+  border-radius: 2px;
+  opacity: 0.65;
+}
+
+/* number: single full-height bar */
+.resource-preview[data-chart="number"] span {
+  border-radius: 4px;
+  opacity: 0.18;
+}
+.resource-preview[data-chart="number"] span:nth-child(10) {
+  opacity: 1;
+  background: #20b8a6;
+}
+
+.resource-panel-enter-active,
+.resource-panel-leave-active {
+  transition: opacity 170ms ease, transform 170ms ease;
+}
+
+.resource-panel-enter-from,
+.resource-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ── Slot editor ── */
+.rf-dd-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rf-dd-id {
+  font-size: 13px;
+  font-weight: 900;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  color: #20b8a6;
+  background: rgba(32,184,166,0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.rf-dd-type-group {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+}
+.rf-dd-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  transition: background 120ms, color 120ms;
+}
+.rf-dd-remove:hover { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+.rf-inline-input {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1.5px solid var(--card-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  outline: none;
+  transition: border-color 120ms;
+}
+.rf-inline-input:focus { border-color: #20b8a6; }
+.rf-unit-input { width: 52px; text-align: center; }
+
+.rf-dd-expr-row { align-items: start; }
+.rf-expr-wrap { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.rf-expr-input {
+  width: 100%;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+}
+.rf-expr-hints { display: flex; flex-wrap: wrap; gap: 4px; }
+.rf-hint-chip {
+  font-size: 10px;
+  font-weight: 900;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  padding: 2px 7px;
+  border: 1px solid rgba(32,184,166,0.4);
+  border-radius: 999px;
+  background: rgba(32,184,166,0.08);
+  color: #20b8a6;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.rf-hint-chip:hover { background: rgba(32,184,166,0.2); }
+
+/* Footer */
+.rf-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.rf-footer-info {
+  font-size: 11px;
+  font-weight: 900;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  color: var(--text-dim);
+}
+.rf-reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 900;
+  font-family: inherit;
+  padding: 5px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.rf-reset-btn:hover { background: var(--card-bg); color: var(--text); }
+
+/* Tips */
+.rf-tips {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+}
+.rf-tips-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  letter-spacing: 0.06em;
+}
+.rf-tips-close {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+.rf-tips-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+.rf-tips-grid code {
+  font-size: 11px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  color: #20b8a6;
+  white-space: nowrap;
+}
+.rf-tips-grid span {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Env vars */
+.env-list { display: flex; flex-direction: column; gap: 8px; }
+.env-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.env-key { width: 110px; font-family: "JetBrains Mono", Consolas, monospace; font-weight: 900; }
+.env-eq { font-size: 13px; color: var(--text-dim); font-weight: 900; }
+.env-val { width: 80px; }
+.env-desc { flex: 1; }
 
 /* Fields */
 .field-group {

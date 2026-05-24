@@ -39,22 +39,18 @@ export function startFrontendMock(serialManager: TelemetrySerialManager): () => 
 
   const timer = setInterval(() => {
     t++;
-    const cpu  = Math.floor(30 + Math.random() * 55);
-    const ram  = Math.floor(42 + Math.random() * 38);
-    const speed = Math.floor(90 + Math.random() * 390);
-    const servo = Math.floor(80 + Math.random() * 820);
-    const ramTotal = 24576;
-    const freeHeap  = Math.floor(16384 * (0.3 + Math.random() * 0.5));
-    const freeStack = Math.floor(8192  * (0.3 + Math.random() * 0.5));
+    const cpu      = Math.floor(30 + Math.random() * 55);
+    const romFree  = Math.floor(32768 * (0.85 + Math.random() * 0.1));
+    const ramFree  = Math.floor(2560  * (0.3  + Math.random() * 0.5));
+    const speed    = Math.floor(90  + Math.random() * 390);
+    const servo    = Math.floor(80  + Math.random() * 820);
 
+    // new protocol: res[0]=CPU, res[1]=ROM_free, res[2]=RAM_free, res[3]=Speed, res[4]=Servo
     serialManager.emit({
       type: 'FRAME',
       frame: {
         type: 'RESOURCE',
-        cpuUsage: cpu, ramUsage: ram,
-        freeHeap, freeStack, ramTotal,
-        speed, servoAngle: servo,
-        reserved: new Uint8Array(4),
+        res: [cpu, romFree, ramFree, speed, servo],
         checksum: 0,
       },
     });

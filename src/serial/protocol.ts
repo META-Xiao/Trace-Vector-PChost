@@ -10,7 +10,7 @@ export const FRAME_TYPE = {
 export const FRAME_SIZE = {
   IMAGE: 22568,     // 0xCC: 1(ID) + 2(Frame) + 1(FPS_cam) + 1(FPS_out) + 1(width) + 1(height) + 22560(data) + 1(checksum)
   LOG_MAX: 260,     // 0xDD: 1 + 2 + 256 + 1 = 260
-  RESOURCE: 18,     // 0xEE: 1(ID)+1(CPU)+1(RAM)+2(freeHeap)+2(freeStack)+2(ramTotal)+2(Speed)+2(ServoAngle)+4(Reserved)+1(Checksum)
+  RESOURCE: 15,     // 0xEE: 1(ID)+1(CPU)+2(ROM_free)+2(RAM_free)+2(Speed)+2(Servo)+4(Reserved)+1(Checksum)
 } as const;
 
 export const BAUDRATE = 115200;
@@ -41,20 +41,13 @@ export interface LogFrame {
 }
 
 /**
- * 资源帧 (0xEE) - 20 字节
- * 帧结构: ID(1) + CPUUsage(1) + RAMUsage(1) + freeHeap(2) + freeStack(2) + ramTotal(2) + Speed(2) + ServoAngle(2) + Reserved(4) + Checksum(1)
+ * 资源帧 (0xEE) — 动态槽解析
+ * res[i] 对应第 i 个槽的原始整数值，由 resourceSlots 配置决定字节数和符号
  */
 export interface ResourceFrame {
   type: 'RESOURCE';
-  cpuUsage: number;       // 1字节 (%)
-  ramUsage: number;       // 1字节 (%)
-  freeHeap: number;       // 2字节 剩余堆内存字节数
-  freeStack: number;      // 2字节 剩余栈内存字节数
-  ramTotal: number;       // 2字节 总内存字节数（MCU自报）
-  speed: number;          // 2字节 (int16, mm/s)
-  servoAngle: number;     // 2字节 (int16, 度×10)
-  reserved: Uint8Array;   // 4字节
-  checksum: number;       // 1字节
+  res: number[];    // 按槽顺序的原始值数组
+  checksum: number;
 }
 
 export type TelemetryFrame = ImageFrame | LogFrame | ResourceFrame;
