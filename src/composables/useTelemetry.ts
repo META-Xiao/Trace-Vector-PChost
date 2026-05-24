@@ -92,7 +92,7 @@ logManager.on((event) => {
 export function useTelemetry() {
   const hasSignal = computed(() => current.value !== null);
 
-  // 按 slot id 取当前值（用于仪表盘卡片）
+  // 按 slot id 取当前值
   const slotValue = (slotIdx: number) =>
     computed(() => hasSignal.value ? (current.value!.values[slotIdx] ?? null) : null);
 
@@ -134,7 +134,7 @@ export function useTelemetry() {
 
   const overviewCards = computed(() => {
     const NS = 'No Signal';
-    type Card = { id: string; label: string; value: string; color: string; points: number[]; max: number; isServo: boolean };
+    type Card = { id: string; label: string; value: string; color: string; points: number[]; max: number; isServo: boolean; chartType: 'line' | 'delta' };
     const cards: Card[] = [];
 
     for (const slot of resourceSlots) {
@@ -152,6 +152,7 @@ export function useTelemetry() {
         points: slotPoints.value[slot.id] ?? [],
         max: 100,
         isServo: slot.label.toLowerCase().includes('servo'),
+        chartType: slot.chart === 'delta' ? 'delta' : 'line',
       });
     }
 
@@ -159,7 +160,7 @@ export function useTelemetry() {
       id: 'network', label: 'Network RX',
       value: networkRxLabel.value,
       color: '#6366f1',
-      points: networkPoints.value, max: 500, isServo: false,
+      points: networkPoints.value, max: 500, isServo: false, chartType: 'line',
     });
 
     return cards.slice(0, 6);

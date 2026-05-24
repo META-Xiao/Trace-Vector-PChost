@@ -113,9 +113,10 @@
                     </div>
                   </div>
 
-                  <div class="resource-preview" :data-chart="slot.chart">
-                    <span v-for="n in 20" :key="n" :style="{ height: previewBarHeight(slot.id, slot.chart, n) }" />
-                  </div>
+                  <svg class="resource-preview-svg" viewBox="0 0 200 60" preserveAspectRatio="none">
+                    <path class="preview-area" :d="previewAreaPath(slot.id, slot.chart)" />
+                    <path class="preview-line" :d="previewLinePath(slot.id, slot.chart)" />
+                  </svg>
                 </template>
               </template>
             </div>
@@ -426,10 +427,8 @@ const langOptions = [
 type ChartModeId = "line" | "delta" | "bar" | "number";
 
 const chartModes: { id: ChartModeId; label: string; icon: string }[] = [
-  { id: "line",   label: "Line",  icon: "lucide:chart-no-axes-combined" },
-  { id: "delta",  label: "Delta", icon: "lucide:diff" },
-  { id: "bar",    label: "Bars",  icon: "lucide:chart-column" },
-  { id: "number", label: "Value", icon: "lucide:badge-gauge" },
+  { id: "line",  label: "Line",   icon: "lucide:chart-no-axes-combined" },
+  { id: "delta", label: "Smooth", icon: "lucide:activity" },
 ];
 
 const SLOT_TYPES: SlotType[] = ["u8", "u16", "i16", "u32", "i32"];
@@ -454,13 +453,26 @@ const removeSlot = (id: number) => {
   if (idx >= DEFAULT_SLOT_COUNT) resourceSlots.splice(idx, 1);
 };
 
-const previewBarHeight = (id: number, chart: ChartModeId, n: number) => {
-  const base = 22 + ((id * 31 + n * 17) % 46);
-  if (chart === "number") return "68px";
-  if (chart === "bar") return `${base}px`;
-  const wave = Math.sin((n / 20) * Math.PI * 2 + id) * 20;
-  const delta = chart === "delta" ? Math.abs(Math.sin((n / 20) * Math.PI * 3 + id)) * 40 : 0;
-  return `${Math.max(4, Math.round(base * 0.6 + wave + delta))}px`;
+import { useChartPath } from '../composables/useChartPath';
+const { linePath: _lp, smoothPath: _sp, areaPath: _ap } = useChartPath(4);
+
+function makePreviewPts(id: number): number[] {
+  return Array.from({ length: 20 }, (_, n) => {
+    const base = 50 + Math.sin((n / 19) * Math.PI * 4 + id) * 35;
+    const spike = n % 3 === 1 ? (id % 2 === 0 ? 38 : -38) : 0;
+    const noise = Math.sin(n * 7.3 + id * 3.1) * 14;
+    return Math.max(3, Math.min(97, base + spike + noise));
+  });
+}
+
+const previewLinePath = (id: number, chart: ChartModeId) => {
+  const pts = makePreviewPts(id);
+  return chart === 'delta' ? _sp(pts, 200, 60) : _lp(pts, 200, 60);
+};
+
+const previewAreaPath = (id: number, chart: ChartModeId) => {
+  const pts = makePreviewPts(id);
+  return _ap(pts, 200, 60, 100, chart === 'delta');
 };
 
 const display = reactive({
@@ -934,6 +946,19 @@ h1 {
   opacity: 1;
   background: #20b8a6;
 }
+
+.resource-preview-svg {
+  width: 100%;
+  height: 70px;
+  border-radius: 10px;
+  background:
+    linear-gradient(rgba(32, 184, 166, 0.06) 1px, transparent 1px),
+    var(--card-bg);
+  background-size: 100% 20px;
+  display: block;
+}
+.preview-area { fill: rgba(32, 184, 166, 0.18); }
+.preview-line { fill: none; stroke: #20b8a6; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .resource-panel-enter-active,
 .resource-panel-leave-active {

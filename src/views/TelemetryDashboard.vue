@@ -82,6 +82,7 @@
                   :color="card.color"
                   :points="card.points"
                   :max="card.max"
+                  :chart-type="card.chartType"
                 />
                 <button class="tz-remove" @click.stop="removeOverviewCard(card.id)"><Icon icon="lucide:x" /></button>
               </div>
