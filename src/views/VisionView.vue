@@ -105,14 +105,18 @@ const fps = imageFps;
 const NS = 'No Signal';
 const ALL_CARDS = computed(() => {
   const d = current.value;
-  const romPct = d && d.ramTotal > 0 ? Math.round((1 - (d.freeHeap + d.freeStack) / d.ramTotal) * 100) : null;
+  const res = d?.res ?? [];
+  const vals = d?.values ?? [];
+  // slot layout: 0=CPU, 1=ROM_free, 2=RAM_free, 3=Speed(m/s), 4=Servo(deg)
+  const romPct = res[1] !== undefined ? Math.round((32768 - res[1]) / 32768 * 100) : null;
+  const ramPct = res[2] !== undefined ? Math.round((2560  - res[2]) / 2560  * 100) : null;
   return [
-    { id: 'cpu',     label: 'CPU',        value: d ? `${d.cpuUsage}%`                      : NS, color: '#242424', points: cpuPoints.value,     max: 100,  isServo: false },
-    { id: 'ram',     label: 'RAM',        value: d ? `${d.ramUsage}%`                      : NS, color: '#20b8a6', points: ramPoints.value,     max: 100,  isServo: false },
-    { id: 'rom',     label: 'ROM',        value: romPct !== null ? `${romPct}%`            : NS, color: '#c7d54f', points: romPoints.value,     max: 100,  isServo: false },
+    { id: 'cpu',     label: 'CPU',        value: res[0] !== undefined ? `${res[0]}%`                : NS, color: '#242424', points: cpuPoints.value,     max: 100,  isServo: false },
+    { id: 'ram',     label: 'RAM',        value: ramPct !== null      ? `${ramPct}%`                : NS, color: '#20b8a6', points: ramPoints.value,     max: 100,  isServo: false },
+    { id: 'rom',     label: 'ROM',        value: romPct !== null      ? `${romPct}%`                : NS, color: '#c7d54f', points: romPoints.value,     max: 100,  isServo: false },
     { id: 'network', label: 'Network RX', value: networkRxKbps.value !== null ? (networkRxKbps.value >= 1024 ? `${(networkRxKbps.value/1024).toFixed(1)} KB/s` : `${Math.round(networkRxKbps.value)} B/s`) : NS, color: '#6366f1', points: networkPoints.value, max: 500, isServo: false },
-    { id: 'speed',   label: 'Speed',      value: d ? `${(d.speed / 1000).toFixed(2)} m/s` : NS, color: '#f59e0b', points: speedPoints.value,   max: 2000, isServo: false },
-    { id: 'servo',   label: 'Servo',      value: d ? `${(d.servoAngle / 10).toFixed(1)}°` : NS, color: '#a78bfa', points: [] as number[],      max: 9000, isServo: true  },
+    { id: 'speed',   label: 'Speed',      value: vals[3] !== undefined ? `${vals[3].toFixed(2)} m/s` : NS, color: '#f59e0b', points: speedPoints.value, max: 2,    isServo: false },
+    { id: 'servo',   label: 'Servo',      value: vals[4] !== undefined ? `${vals[4].toFixed(1)}°`   : NS, color: '#a78bfa', points: [] as number[],     max: 9000, isServo: true  },
   ];
 });
 

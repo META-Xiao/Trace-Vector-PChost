@@ -68,34 +68,22 @@
         <div class="left-column">
           <section class="telemetry-card">
             <section class="telemetry-zone">
-              <aside class="resource-column">
-                <div
-                  v-for="item in resourceCards"
-                  :key="item.name"
-                  class="mini-card resource-card"
-                >
-                  <SensorCard
-                    :label="item.name"
-                    :value="item.value !== null ? item.value + item.unit : 'No Signal'"
-                    :color="item.color"
-                    :points="item.points"
-                  />
-                </div>
-              </aside>
-
-              <aside class="motion-column">
-                <div class="mini-card resource-card">
-                  <SensorCard label="Network RX" :value="networkRxLabel" color="#6366f1" :points="networkPoints" :max="500" />
-                </div>
-
-                <div class="mini-card speed-card">
-                  <SensorCard label="Speed" :value="speedMs !== null ? speedMs + ' m/s' : 'No Signal'" color="#20b8a6" :points="speedPoints" :max="2000" :view-w="240" :view-h="150" />
-                </div>
-
-                <div class="mini-card attitude-card">
-                  <ServoCard :deg="servoDeg ?? '--'" :visual-deg="servoVisualDeg" />
-                </div>
-              </aside>
+              <div
+                v-for="card in overviewCards"
+                :key="card.id"
+                class="mini-card resource-card"
+              >
+                <ServoCard v-if="card.isServo"
+                  :deg="servoDeg ?? '--'"
+                  :visual-deg="servoVisualDeg" />
+                <SensorCard v-else
+                  :label="card.label"
+                  :value="card.value"
+                  :color="card.color"
+                  :points="card.points"
+                  :max="card.max"
+                />
+              </div>
             </section>
 
             <aside class="mcu-card">
@@ -223,9 +211,9 @@ import { conn } from "../stores/connection";
 
 const {
   current, mcuLogs, imageFps, imageManager, serialManager,
-  cpuPoints, ramPoints, romPoints, speedPoints, networkPoints,
   networkRxKbps, networkRxLabel,
-  cpuVal, ramVal, romVal, speedMs, servoDeg, servoVisualDeg,
+  servoDeg, servoVisualDeg,
+  overviewCards,
 } = useTelemetry();
 
 const tabs = ["Overview", "Vision", "Settings"];
@@ -344,12 +332,6 @@ function drawNoSignal() {
   ctx.textBaseline = 'middle';
   ctx.fillText('No Signal', c.width / 2, c.height / 2);
 }
-
-const resourceCards = computed(() => [
-  { name: "CPU", value: cpuVal.value, unit: "%",  color: "#242424", points: cpuPoints.value },
-  { name: "RAM", value: ramVal.value, unit: "%",  color: "#20b8a6", points: ramPoints.value },
-  { name: "ROM", value: romVal.value, unit: "%",  color: "#c7d54f", points: romPoints.value },
-]);
 
 const hostLogs = ref([
   "[HOST 00:00:00] Trace Vector PC Host started",
@@ -740,16 +722,6 @@ h1 {
   gap: 10px;
   align-content: start;
   min-width: 0;
-}
-.resource-column {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.motion-column {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 .resource-card,
 .speed-card,

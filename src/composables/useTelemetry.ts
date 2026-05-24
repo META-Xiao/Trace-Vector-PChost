@@ -130,6 +130,41 @@ export function useTelemetry() {
     return bps >= 1024 ? `${(bps / 1024).toFixed(1)} KB/s` : `${Math.round(bps)} B/s`;
   });
 
+  const SLOT_COLORS = ['#242424', '#20b8a6', '#c7d54f', '#f59e0b', '#a78bfa', '#6366f1', '#ec4899'];
+
+  const overviewCards = computed(() => {
+    const NS = 'No Signal';
+    type Card = { id: string; label: string; value: string; color: string; points: number[]; max: number; isServo: boolean };
+    const cards: Card[] = [];
+
+    for (const slot of resourceSlots) {
+      if (!slot.enabled || cards.length >= 5) continue;
+      const raw = current.value?.values[slot.id] ?? null;
+      const valid = raw !== null && !isNaN(raw as number);
+      const display = valid
+        ? `${Number.isInteger(raw) ? raw : (raw as number).toFixed(2)}${slot.unit ? ' ' + slot.unit : ''}`
+        : NS;
+      cards.push({
+        id: `slot_${slot.id}`,
+        label: slot.label,
+        value: display,
+        color: SLOT_COLORS[slot.id % SLOT_COLORS.length],
+        points: slotPoints.value[slot.id] ?? [],
+        max: 100,
+        isServo: slot.label.toLowerCase().includes('servo'),
+      });
+    }
+
+    cards.push({
+      id: 'network', label: 'Network RX',
+      value: networkRxLabel.value,
+      color: '#6366f1',
+      points: networkPoints.value, max: 500, isServo: false,
+    });
+
+    return cards.slice(0, 6);
+  });
+
   onMounted(() => {
     if (refCount++ === 0) {
       logManager.start();
@@ -153,7 +188,7 @@ export function useTelemetry() {
     serialManager, resourceManager, imageManager,
     current, mcuLogs, imageFps,
     slotPoints, networkPoints, networkRxKbps, networkRxLabel,
-    resourceSlots,
+    resourceSlots, overviewCards,
     hasSignal, cpuVal, ramVal, romVal, speedMs, servoDeg, servoVisualDeg,
     cpuPoints, ramPoints, romPoints, speedPoints,
     slotValue,
