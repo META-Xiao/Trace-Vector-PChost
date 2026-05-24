@@ -135,16 +135,13 @@ export function useTelemetry() {
   const overviewCards = computed(() => {
     const NS = 'No Signal';
     type Card = { id: string; label: string; value: string; color: string; points: number[]; max: number; isServo: boolean; chartType: 'line' | 'delta' };
-    const cards: Card[] = [];
-
-    for (const slot of resourceSlots) {
-      if (!slot.enabled || cards.length >= 5) continue;
+    const cards: Card[] = resourceSlots.map(slot => {
       const raw = current.value?.values[slot.id] ?? null;
       const valid = raw !== null && !isNaN(raw as number);
       const display = valid
         ? `${Number.isInteger(raw) ? raw : (raw as number).toFixed(2)}${slot.unit ? ' ' + slot.unit : ''}`
         : NS;
-      cards.push({
+      return {
         id: `slot_${slot.id}`,
         label: slot.label,
         value: display,
@@ -152,9 +149,9 @@ export function useTelemetry() {
         points: slotPoints.value[slot.id] ?? [],
         max: 100,
         isServo: slot.label.toLowerCase().includes('servo'),
-        chartType: slot.chart === 'delta' ? 'delta' : 'line',
-      });
-    }
+        chartType: slot.chart === 'delta' ? 'delta' : 'line' as 'line' | 'delta',
+      };
+    });
 
     cards.push({
       id: 'network', label: 'Network RX',
@@ -163,7 +160,7 @@ export function useTelemetry() {
       points: networkPoints.value, max: 500, isServo: false, chartType: 'line',
     });
 
-    return cards.slice(0, 6);
+    return cards;
   });
 
   onMounted(() => {

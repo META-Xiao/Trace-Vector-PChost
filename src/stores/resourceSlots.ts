@@ -9,7 +9,7 @@ export interface ResourceSlot {
   type: SlotType;
   expr: string;
   unit: string;
-  chart: 'line' | 'delta' | 'bar' | 'number';
+  chart: 'line' | 'delta';
   enabled: boolean;
 }
 
@@ -19,8 +19,8 @@ export const SLOT_BYTES: Record<SlotType, number> = {
 
 const DEFAULT_SLOTS: ResourceSlot[] = [
   { id: 0, label: 'CPU',      type: 'u8',  expr: 'res[0]',                              unit: '%',   chart: 'line',  enabled: true  },
-  { id: 1, label: 'ROM', type: 'u16', expr: '(ROM_TOTAL-res[1])/ROM_TOTAL*100',    unit: '%',   chart: 'bar',   enabled: true  },
-  { id: 2, label: 'RAM', type: 'u16', expr: '(RAM_TOTAL-res[2])/RAM_TOTAL*100',    unit: '%',   chart: 'bar',   enabled: true  },
+  { id: 1, label: 'ROM', type: 'u16', expr: '(ROM_TOTAL-res[1])/ROM_TOTAL*100',    unit: '%',   chart: 'line',  enabled: true  },
+  { id: 2, label: 'RAM', type: 'u16', expr: '(RAM_TOTAL-res[2])/RAM_TOTAL*100',    unit: '%',   chart: 'line',  enabled: true  },
   { id: 3, label: 'Speed',    type: 'i16', expr: 'res[3]/1000.0',                       unit: 'm/s', chart: 'line',  enabled: true  },
   { id: 4, label: 'Servo',    type: 'i16', expr: 'res[4]/10.0',                         unit: '°',   chart: 'delta', enabled: true  },
 ];
@@ -28,7 +28,7 @@ const DEFAULT_SLOTS: ResourceSlot[] = [
 // bump version to force localStorage reset
 export const FRAME_BODY_BYTES = 13;
 const STORAGE_KEY = 'tv_resource_slots';
-const STORAGE_VERSION = 5;
+const STORAGE_VERSION = 6;
 const VERSION_KEY = 'tv_resource_slots_ver';
 
 function load(): ResourceSlot[] {

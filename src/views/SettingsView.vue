@@ -424,7 +424,7 @@ const langOptions = [
   { value: "zh", label: "Simplified Chinese" },
 ];
 
-type ChartModeId = "line" | "delta" | "bar" | "number";
+type ChartModeId = "line" | "delta";
 
 const chartModes: { id: ChartModeId; label: string; icon: string }[] = [
   { id: "line",  label: "Line",   icon: "lucide:chart-no-axes-combined" },
@@ -445,7 +445,7 @@ const addSlot = () => {
   if (rem <= 0) return;
   const type: SlotType = rem >= 2 ? "u16" : "u8";
   const id = resourceSlots.length;
-  resourceSlots.push({ id, label: `Custom${id}`, type, expr: `res[${id}]`, unit: "", chart: "number", enabled: true });
+  resourceSlots.push({ id, label: `Custom${id}`, type, expr: `res[${id}]`, unit: "", chart: "line", enabled: true });
 };
 
 const removeSlot = (id: number) => {

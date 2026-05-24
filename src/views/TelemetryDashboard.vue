@@ -231,9 +231,11 @@ const {
   overviewCards,
 } = useTelemetry();
 
-// telemetry-zone add/remove
+// telemetry-zone add/remove — shownIds controls display only, independent of slot.enabled
 const NETWORK_ID = 'network';
-const shownIds = ref<string[]>(resourceSlots.filter(s => s.enabled).map(s => `slot_${s.id}`).concat([NETWORK_ID]));
+const shownIds = ref<string[]>(
+  resourceSlots.map(s => `slot_${s.id}`).concat([NETWORK_ID])
+);
 
 const hiddenSlotCards = computed(() => {
   const all = [
@@ -245,21 +247,11 @@ const hiddenSlotCards = computed(() => {
 
 function removeOverviewCard(id: string) {
   shownIds.value = shownIds.value.filter(x => x !== id);
-  if (id !== NETWORK_ID) {
-    const slotId = parseInt(id.replace('slot_', ''));
-    const slot = resourceSlots.find(s => s.id === slotId);
-    if (slot) slot.enabled = false;
-  }
 }
 
 function addOverviewCard(id: string) {
   if (shownIds.value.length >= 6) return;
   shownIds.value = [...shownIds.value, id];
-  if (id !== NETWORK_ID) {
-    const slotId = parseInt(id.replace('slot_', ''));
-    const slot = resourceSlots.find(s => s.id === slotId);
-    if (slot) slot.enabled = true;
-  }
   tzPickerOpen.value = false;
 }
 
