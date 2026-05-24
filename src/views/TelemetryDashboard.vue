@@ -226,8 +226,7 @@ import { conn } from "../stores/connection";
 import { resourceSlots } from "../stores/resourceSlots";
 
 const {
-  current, mcuLogs, imageFps, imageManager, serialManager,
-  networkRxKbps, networkRxLabel,
+  mcuLogs, imageFps, imageManager, serialManager,
   servoDeg, servoVisualDeg,
   overviewCards,
 } = useTelemetry();
@@ -380,7 +379,7 @@ const onBottomTab = (i: number) => {
 };
 
 const imageCanvas = ref<HTMLCanvasElement>();
-const { start: startAnim, stop: stopAnim } = useCanvasAnimation(imageCanvas);
+const { stop: stopAnim } = useCanvasAnimation(imageCanvas);
 const imageSize = ref({ w: 0, h: 0 });
 let unsubImage: (() => void) | null = null;
 
@@ -419,7 +418,7 @@ onMounted(() => {
     imageSize.value = { w: width, h: height };
     c.width = width;
     c.height = height;
-    ctx.putImageData(new ImageData(pixelData, width, height), 0, 0);
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(pixelData.buffer as ArrayBuffer), width, height), 0, 0);
   });
 });
 onUnmounted(() => {

@@ -28,7 +28,7 @@ const DEFAULT_SLOTS: ResourceSlot[] = [
 // bump version to force localStorage reset
 export const FRAME_BODY_BYTES = 13;
 const STORAGE_KEY = 'tv_resource_slots';
-const STORAGE_VERSION = 4;
+const STORAGE_VERSION = 5;
 const VERSION_KEY = 'tv_resource_slots_ver';
 
 function load(): ResourceSlot[] {

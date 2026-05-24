@@ -50,8 +50,8 @@
             class="metric-card"
           >
             <ServoCard v-if="card.isServo"
-              :deg="current ? (current.servoAngle/10).toFixed(1) : '--'"
-              :visual-deg="current ? Math.max(-42, Math.min(42, current.servoAngle/10 - 45)) : 0" />
+              :deg="current?.values[4] !== undefined ? current.values[4].toFixed(1) : '--'"
+              :visual-deg="current?.values[4] !== undefined ? Math.max(-42, Math.min(42, current.values[4] - 45)) : 0" />
             <SensorCard v-else :label="card.label" :value="card.value" :color="card.color"
               :points="card.points" :max="card.max" :padding="5" :view-w="200" :view-h="80" />
             <button class="remove-btn" @click="removeCard(card.id)"><Icon icon="lucide:x" /></button>
@@ -95,8 +95,7 @@ import { resourceSlots } from '../stores/resourceSlots';
 
 const {
   current, mcuLogs, imageFps,
-  cpuPoints, ramPoints, romPoints, speedPoints, networkPoints,
-  networkRxKbps, slotPoints,
+  networkPoints, networkRxKbps, slotPoints,
 } = useTelemetry();
 
 const canvasEl = ref<HTMLCanvasElement>();
@@ -106,7 +105,6 @@ const fps = imageFps;
 const NS = 'No Signal';
 const ALL_CARDS = computed(() => {
   const d = current.value;
-  const res = d?.res ?? [];
   const vals = d?.values ?? [];
 
   // Slot-based cards from resourceSlots
