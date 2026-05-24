@@ -17,11 +17,10 @@ export const SLOT_BYTES: Record<SlotType, number> = {
   u8: 1, u16: 2, i16: 2, u32: 4, i32: 4,
 };
 
-// 新协议 (v3): CPU(1B) + ROM_free(2B) + RAM_free(2B) + Speed(2B i16) + Servo(2B i16) + Reserved(4B) + CHK = 15B
 const DEFAULT_SLOTS: ResourceSlot[] = [
   { id: 0, label: 'CPU',      type: 'u8',  expr: 'res[0]',                              unit: '%',   chart: 'line',  enabled: true  },
-  { id: 1, label: 'ROM used', type: 'u16', expr: '(ROM_TOTAL-res[1])/ROM_TOTAL*100',    unit: '%',   chart: 'bar',   enabled: true  },
-  { id: 2, label: 'RAM used', type: 'u16', expr: '(RAM_TOTAL-res[2])/RAM_TOTAL*100',    unit: '%',   chart: 'bar',   enabled: true  },
+  { id: 1, label: 'ROM', type: 'u16', expr: '(ROM_TOTAL-res[1])/ROM_TOTAL*100',    unit: '%',   chart: 'bar',   enabled: true  },
+  { id: 2, label: 'RAM', type: 'u16', expr: '(RAM_TOTAL-res[2])/RAM_TOTAL*100',    unit: '%',   chart: 'bar',   enabled: true  },
   { id: 3, label: 'Speed',    type: 'i16', expr: 'res[3]/1000.0',                       unit: 'm/s', chart: 'line',  enabled: true  },
   { id: 4, label: 'Servo',    type: 'i16', expr: 'res[4]/10.0',                         unit: '°',   chart: 'delta', enabled: true  },
 ];
