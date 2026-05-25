@@ -28,7 +28,7 @@
               <Icon icon="lucide:file-video" class="replay-file-icon" />
               <span class="replay-file-name">{{ replayState === 'idle' ? 'No file' : replayCtrl.fileName }}</span>
               <input
-                class="popup-input replay-speed"
+                class="replay-speed"
                 type="number"
                 :value="replayCtrl.speed.toFixed(2)"
                 @input="replayCtrl.speed = parseFloat(($event.target as HTMLInputElement).value) || 1.0"
@@ -669,11 +669,19 @@ onUnmounted(() => {
 .replay-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .replay-file-icon { width: 18px; height: 18px; flex-shrink: 0; }
 .replay-speed {
-  width: 56px;
+  width: 52px;
   flex-shrink: 0;
-  font-family: "JetBrains Mono", monospace;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 4px 4px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
   text-align: right;
 }
+.replay-speed:focus { outline: none; border-color: #20b8a6; }
 .replay-speed::-webkit-outer-spin-button,
 .replay-speed::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .replay-speed[type=number] { -moz-appearance: textfield; }
