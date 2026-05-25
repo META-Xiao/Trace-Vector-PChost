@@ -17,24 +17,23 @@
 
 **帧结构**:
 ```
-┌─────┬───────┬─────────┬──────────┬───────┬────────┬──────────────┬──────────┐
-│ ID  │ Frame │ FPS_cam │ FPS_out  │ Width │ Height │ ImageData    │ Checksum │
-├─────┼───────┼─────────┼──────────┼───────┼────────┼──────────────┼──────────┤
-│ 0xCC│ (2B)  │ (1B)    │ (1B)     │ (1B)  │ (1B)   │ (W×H bytes)  │ (1B)     │
-└─────┴───────┴─────────┴──────────┴───────┴────────┴──────────────┴──────────┘
+┌─────┬────────┬───────┬───────┬───────┬──────────────┬──────────┐
+│ ID  │ Length │ Frame │ Width │ Height│ ImageData    │ Checksum │
+├─────┼────────┼───────┼───────┼───────┼──────────────┼──────────┤
+│ 0xCC│ (2B)   │ (2B)  │ (1B)  │ (1B)  │ (W×H bytes)  │ (1B)     │
+└─────┴────────┴───────┴───────┴───────┴──────────────┴──────────┘
 ```
 
 **字段说明**:
-- `Frame`: 帧计数器（0-65535，uint16 大端）
-- `FPS_cam`: 摄像头实际帧率
-- `FPS_out`: 图传输出帧率
-- `Width`: 图像宽度（像素，uint8）
-- `Height`: 图像高度（像素，uint8）
+- `Length`: 帧头之后、校验和之前的总字节数（uint16 大端），Frame(2) + Width(1) + Height(1) + ImageData(W×H) = 4 + W×H，解析器据此确定帧边界
+- `Frame`: 帧计数器（0-65535，uint16 大端），上位机通过 Frame 增量 + 时间戳即可评估接收帧率
+- `Width`: 图像宽度（像素，uint8，当前最大 255）
+- `Height`: 图像高度（像素，uint8，当前最大 255）
 - `ImageData`: 原始灰度图像，逐行存储，共 Width×Height 字节
 - `Checksum`: 所有字节之和 & 0xFF（含帧头 0xCC）
 
-**总字节数**: 9 + W×H（例：188×120 → 22569B）  
-**上位机处理**: 从帧头读取 Width/Height 动态分配缓冲区，图像解析→Canvas 显示
+**总字节数**: 8 + W×H（例：188×120 → Length=22564，总帧=22568B）  
+**上位机处理**: 先读 Length 确定帧边界，再读 Width/Height 分配缓冲区，解析后 Canvas 显示。即使 Width/Height 在传输中损坏，解析器也能在读取 Length 指定的字节数后重新同步。
 
 ---
 
@@ -52,42 +51,62 @@
 **字段说明**:
 - `Length`: 日志数据字节数（uint16 大端，最大 256）
 - `LogData`: UTF-8 文本内容
-- `Checksum`: 所有字节之和 & 0xFF（含帧头 0xDD）
+- `Checksum`: 校验和，所有字节和 & 0xFF 的结果（含帧头 0xDD）
 
 **总字节数**: 4 + N（N=0-256）  
-**上位机处理**: 文本解析→控制台显示
+**上位机处理**: 文本解析->控制台显示
 
 ---
 
 ### 2.3 资源帧 (0xEE)
 
 **帧结构**:
+
+这里资源帧使用高度自定义的字段，可以根据需求扩展。
+
 ```
-┌─────┬──────────┬──────────┬──────────┬────────────┬──────────────┬──────────┬──────────┐
-│ ID  │ CPUUsage │ ROM_free │ RAM_free │ Speed      │ ServoAngle   │ Reserved │ Checksum │
-├─────┼──────────┼──────────┼──────────┼────────────┼──────────────┼──────────┼──────────┤
-│ 0xEE│ (1B) %   │ (2B u16) │ (2B u16) │ (2B int16) │ (2B int16)   │ (4B)     │ (1B)     │
-└─────┴──────────┴──────────┴──────────┴────────────┴──────────────┴──────────┴──────────┘
+┌─────┬──────────┬──────────┬──────────┬────────────┬──────────────┬──────────┐
+│ ID  │ Length   │ Block1   │ Block2   │ Block3     │ ...          │ Checksum │
+├─────┼──────────┼──────────┼──────────┼────────────┼──────────────┼──────────┤
+│ 0xEE│ (2B)     │ (2B u16) │ (2B u16) │ (2B i16)   │ (xB xxx)     │ (1B)     │
+└─────┴──────────┴──────────┴──────────┴────────────┴──────────────┴──────────┘
+```
+
+这里资源帧内的划分块，可以根据需求扩展，然后在上位机的Settings -> Resources 中配置就行。
+
+**字段说明**：
+
+- `Length`: 资源数据字节数（uint16 大端，最大 256），即帧头之后、校验和之前的总字节数，不包括帧头、Length 字段和校验和。例如这个就是 $(6+x)B$
+- `Block1`: 资源数据块1（uint16 大端）
+- `Block2`: 资源数据块2（uint16 大端）
+- `Block3`: 资源数据块3（int16 大端）
+- `...`: 其他资源数据块（里面的数据类型自定义）
+- `Checksum`: 校验和，所有字节和 & 0xFF 的结果（含帧头 0xEE）
+
+这里给出默认例子：
+
+```
+┌─────┬──────────┬──────────┬──────────┬────────────┬────────────┬────────────┬──────────┐
+│ ID  │ Length   │ CPUUsage │ RAM      │ ROM        │ Speed      │ ServoAngle │ Checksum |
+├─────┼──────────┼──────────┼──────────┼────────────┼────────────┼────────────┼──────────┤
+│ 0xEE│ (2B)     │ (1B) %   │ (2B u16) │ (2B u16)   │ (2B i16)   │ (2B i16)   │ (1B)     |
+└─────┴──────────┴──────────┴──────────┴────────────┴────────────┴────────────┴──────────┘
 ```
 
 **字段说明**:
+- `Length`: 资源数据字节数，这里是 $9B$（= CPU(1) + ROM(2) + RAM(2) + Speed(2) + Servo(2)）
 - `CPUUsage`: CPU 占用率（%，uint8，范围 0-100）
-- `ROM_free`: Flash 剩余字节数（uint16 大端）；分母 `ROM_TOTAL` 在上位机 Settings → Env 中配置（ATmega32U4 默认 32768）
-- `RAM_free`: SRAM 剩余字节数（uint16 大端）；分母 `RAM_TOTAL` 在上位机 Settings → Env 中配置（ATmega32U4 默认 2560）
+- `RAM`: SRAM 剩余字节数（uint16 大端）；分母 `RAM_TOTAL` 在上位机 Settings -> Env 中配置
+- `ROM`: Flash 剩余字节数（uint16 大端）；分母 `ROM_TOTAL` 在上位机 Settings -> Env 中配置
 - `Speed`: 前进速度（mm/s，int16 大端，正=前进，负=后退）
 - `ServoAngle`: 舵机偏转角度（int16 大端，单位由 MCU 定义）
-- `Reserved`: 预留 4 字节，填 0（可通过上位机 Settings → Resources 扩展自定义字段）
-- `Checksum`: 所有字节之和 & 0xFF（含帧头 0xEE）
+- `Checksum`: 校验和，所有字节和 & 0xFF 的结果（含帧头 0xEE）
 
-**总字节数**: 15B（1+1+2+2+2+2+4+1）
+**总字节数**: 13B
 
-**上位机计算**（Settings → Env 中配置 `ROM_TOTAL=32768`、`RAM_TOTAL=2560`）:
-```javascript
-rom_used_pct = (ROM_TOTAL - res[1]) / ROM_TOTAL * 100   // res[1] = ROM_free
-ram_used_pct = (RAM_TOTAL - res[2]) / RAM_TOTAL * 100   // res[2] = RAM_free
-speed_ms     = res[3] / 1000.0                          // res[3] = Speed
-servo_deg    = res[4] / 10.0                            // res[4] = ServoAngle
-```
+
+并且对于每个数据块得到的结果，在上位机中表示为：`Block[idx]` idx就是数据块的下标（0-base）
+上位机显示的数据可用自定义计算结果，例如我设计的`Block[2]` 是传出MCU的ROM剩余字节数，但是我又想在host的图表中显示ROM的占用率，那么就可以通过`(ROM_TOTAL - Block[2]) / ROM_TOTAL`来计算 ，并填入 Setting -> Resources Frame -> ROM -> Expr 中，这里的`ROM_TOTAL`就是上位机中设置的ROM总大小，在Setting -> Env 添加环境变量。
 
 ---
 
@@ -119,9 +138,9 @@ checksum = (byte[0] + byte[1] + ... + byte[N-1]) & 0xFF
 
 | 帧类型 | 典型大小 | 传输耗时 |
 |--------|----------|----------|
-| 图传帧 (0xCC) | 22569B（188×120） | ≈ 1960ms |
+| 图传帧 (0xCC) | 22568B（188×120） | ≈ 1960ms |
 | 日志帧 (0xDD) | 4–260B | < 23ms |
-| 资源帧 (0xEE) | 15B | < 2ms |
+| 资源帧 (0xEE) | 13B | < 2ms |
 
 图传帧体积远大于其他帧，MCU 端建议使用异步/DMA 发送以避免阻塞。
 
@@ -134,12 +153,12 @@ while True:
     byte = read_byte()
 
     if byte == 0xCC:          # 图传帧
+        length    = read_uint16_be()   # 帧头后总字节数
         frame_id  = read_uint16_be()
-        fps_cam   = read_uint8()
-        fps_out   = read_uint8()
         width     = read_uint8()
         height    = read_uint8()
-        pixels    = read_bytes(width * height)
+        # ImageData 字节数 = length - 4 (已读 Frame+Width+Height)
+        pixels    = read_bytes(length - 4)
         checksum  = read_uint8()
         # 验证校验和后显示图像
 
@@ -150,17 +169,19 @@ while True:
         # 验证校验和后输出 UTF-8 文本
 
     elif byte == 0xEE:        # 资源帧
-        cpu       = read_uint8()
-        rom_free  = read_uint16_be()
-        ram_free  = read_uint16_be()
-        speed     = read_int16_be()
-        servo     = read_int16_be()
-        reserved  = read_bytes(4)
+        length    = read_uint16_be()   # 帧头后总字节数
+        data      = read_bytes(length)
         checksum  = read_uint8()
-        # 验证校验和后更新仪表板
+        # 根据 Settings -> Resources 配置的 slot 列表动态解析 data
+        # 例如配置为 [u8, u16, u16, i16, i16] 则：
+        #   cpu = data[0]
+        #   rom = (data[1]<<8) | data[2]
+        #   ram = (data[3]<<8) | data[4]
+        #   speed = int16_from_be(data[5:7])
+        #   servo = int16_from_be(data[7:9])
 ```
 
 ---
 
-**文档版本**: 3.0  
-**更新日期**: 2026-05-24
+**文档版本**: 3.1  
+**更新日期**: 2026-05-25
