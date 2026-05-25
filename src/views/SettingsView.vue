@@ -37,20 +37,21 @@
             Use <code>res[id]</code> in expressions. All cells must fill the Data space exactly.
           </p>
 
-          <!-- Byte map: 0xEE + Length(2B) + Cells + Rsv(remainder) + CHK(1B) -->
-          <div class="rf-bytemap">
-            <div class="rf-bytemap-label">0xEE</div>
+          <!-- Byte map: proportional flex per byte count, fixed total width -->
+          <div class="rf-bytemap" ref="byteMapEl">
+            <div class="rf-bytemap-seg rf-bytemap-head"><span class="rf-bytemap-name">0xEE</span></div>
             <div class="rf-bytemap-seg rf-bytemap-length">
-              <span class="rf-bytemap-name">Length</span>
-              <span class="rf-bytemap-sz">2B</span>
+              <span class="rf-bytemap-name">Len</span>
             </div>
             <template v-for="slot in resourceSlots" :key="slot.id">
               <div
-                class="rf-bytemap-seg"
-                :class="{ active: selectedSlot === slot.id }"
+                class="rf-bytemap-seg rf-cell"
+                :class="{ active: selectedSlot === slot.id, dragging: drag.slotId === slot.id }"
                 :style="{ flex: SLOT_BYTES[slot.type] }"
+                :data-cell-id="slot.id"
                 @click.stop="selectedSlot = selectedSlot === slot.id ? -1 : slot.id"
-                :title="`res[${getCellIndex(slot.id)}] · ${slot.label}`"
+                @pointerdown.stop="onCellPointerDown($event, slot.id)"
+                :title="`cell[${getCellIndex(slot.id)}] · ${slot.label} (drag to reorder)`"
               >
                 <button
                   class="rf-seg-close"
@@ -60,16 +61,10 @@
                 <span class="rf-bytemap-sz">{{ slot.type }}</span>
               </div>
             </template>
-            <div
-              v-if="reservedBytes > 0"
-              class="rf-bytemap-seg rf-bytemap-reserved"
-              :style="{ flex: reservedBytes }"
-            >
-              <button class="rf-seg-add" @click.stop="addSlot"><Icon icon="lucide:plus" /></button>
-              <span class="rf-bytemap-name">Rsv</span>
-              <span class="rf-bytemap-sz">{{ reservedBytes }}B</span>
+            <div class="rf-bytemap-seg rf-bytemap-insert" @click.stop="addSlot">
+              <Icon icon="lucide:plus" />
             </div>
-            <div class="rf-bytemap-seg chk"><span class="rf-bytemap-name">CHK</span><span class="rf-bytemap-sz">1B</span></div>
+            <div class="rf-bytemap-seg chk"><span class="rf-bytemap-name">CHK</span></div>
           </div>
 
           <!-- Slot editor -->
@@ -144,23 +139,8 @@
             </div>
           </Transition>
 
-          <!-- Frame Data Length control -->
-          <div class="rf-length-row">
-            <span class="rf-length-label">Frame Data Length</span>
-            <button class="rf-length-btn" @click="adjustLength(-1)" :disabled="frameDataLength <= 1">-</button>
-            <input
-              class="rf-length-input"
-              type="number"
-              :value="frameDataLength"
-              @change="frameDataLength = Math.max(1, Math.min(256, Number(($event.target as HTMLInputElement).value) || 1))"
-              min="1" max="256"
-            />
-            <button class="rf-length-btn" @click="adjustLength(1)" :disabled="frameDataLength >= 256">+</button>
-            <span class="rf-length-hint">B</span>
-          </div>
-
           <div class="rf-footer">
-            <span class="rf-footer-info">Data: {{ totalBytes }}B / {{ frameDataLength }}B</span>
+            <span class="rf-footer-info">Data: {{ totalBytes }}B</span>
             <button class="rf-reset-btn" style="margin-right:auto;margin-left:8px" @click="showTips = !showTips">
               <Icon icon="lucide:book-open" /> Tips
             </button>
@@ -428,12 +408,18 @@ onMounted(() => {
   document.addEventListener("pointermove", handleBarDrag, { passive: false });
   document.addEventListener("pointerup", endBarDrag);
   document.addEventListener("pointercancel", endBarDrag);
+  document.addEventListener("pointermove", onCellDragMove, { passive: false });
+  document.addEventListener("pointerup", onCellDragEnd);
+  document.addEventListener("pointercancel", onCellDragEnd);
 });
 
 onUnmounted(() => {
   document.removeEventListener("pointermove", handleBarDrag);
   document.removeEventListener("pointerup", endBarDrag);
   document.removeEventListener("pointercancel", endBarDrag);
+  document.removeEventListener("pointermove", onCellDragMove);
+  document.removeEventListener("pointerup", onCellDragEnd);
+  document.removeEventListener("pointercancel", onCellDragEnd);
   systemMq?.removeEventListener("change", onSystemChange);
 });
 
@@ -452,34 +438,91 @@ const chartModes: { id: ChartModeId; label: string; icon: string }[] = [
 const SLOT_TYPES: SlotType[] = ["u8", "u16", "i16", "u32", "i32", "u64", "i64"];
 
 const totalBytes = computed(() => resourceSlots.reduce((s, sl) => s + SLOT_BYTES[sl.type], 0));
-const reservedBytes = computed(() => Math.max(0, frameDataLength.value - totalBytes.value));
 const isDataValid = computed(() => totalBytes.value === frameDataLength.value);
 
 const selectedSlot = ref(-1);
 const showTips = ref(false);
+const byteMapEl = ref<HTMLElement | null>(null);
 
 function getCellIndex(id: number): number {
   return resourceSlots.findIndex(s => s.id === id);
 }
 
+// ——— Cell drag-and-drop ———
+const drag = reactive({ slotId: -1, offsetX: 0, active: false });
+let cellDragStartX = 0;
+let cellLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+function onCellPointerDown(e: PointerEvent, slotId: number) {
+  if ((e.target as HTMLElement).closest('.rf-seg-close')) return;
+  cellDragStartX = e.clientX;
+  cellLongPressTimer = setTimeout(() => {
+    drag.slotId = slotId;
+    drag.active = true;
+    drag.offsetX = 0;
+  }, 450);
+}
+
+function onCellDragMove(e: PointerEvent) {
+  if (cellLongPressTimer && Math.abs(e.clientX - cellDragStartX) > 4) {
+    clearTimeout(cellLongPressTimer);
+    cellLongPressTimer = null;
+  }
+  if (!drag.active) return;
+  drag.offsetX = e.clientX - cellDragStartX;
+}
+
+function onCellDragEnd(e: PointerEvent) {
+  if (cellLongPressTimer) { clearTimeout(cellLongPressTimer); cellLongPressTimer = null; }
+  if (!drag.active) return;
+
+  const fromSlotId = drag.slotId;
+  drag.active = false;
+  drag.slotId = -1;
+  drag.offsetX = 0;
+
+  const container = byteMapEl.value;
+  if (!container) return;
+  const cells = Array.from(container.querySelectorAll<HTMLElement>('.rf-cell[data-cell-id]'));
+  if (cells.length === 0) return;
+  const pointerX = e.clientX;
+
+  const fromIdx = resourceSlots.findIndex(s => s.id === fromSlotId);
+  if (fromIdx < 0) return;
+
+  // default: append at end
+  let toIdx = resourceSlots.length;
+  for (const cell of cells) {
+    const r = cell.getBoundingClientRect();
+    if (pointerX < r.left + r.width / 2) {
+      toIdx = resourceSlots.findIndex(s => s.id === Number(cell.dataset.cellId));
+      break;
+    }
+  }
+
+  if (fromIdx === toIdx || toIdx === fromIdx + 1) return;
+
+  const [moved] = resourceSlots.splice(fromIdx, 1);
+  resourceSlots.splice(toIdx > fromIdx ? toIdx - 1 : toIdx, 0, moved);
+  reindexSlots();
+  selectedSlot.value = moved.id;
+}
+
+// ——— Slot management ———
 const addSlot = () => {
-  const rem = reservedBytes.value;
-  if (rem <= 0) return;
-  // pick smallest type that fits in remaining space
-  const type: SlotType = rem >= 8 ? "u64" : rem >= 4 ? "u32" : rem >= 2 ? "u16" : "u8";
   const id = resourceSlots.length > 0 ? Math.max(...resourceSlots.map(s => s.id)) + 1 : 0;
+  const type: SlotType = "u16";
   resourceSlots.push({ id, label: `Cell${id}`, type, expr: `res[${id}]`, unit: "", chart: "line", enabled: true });
+  frameDataLength.value += SLOT_BYTES[type];
 };
 
 const removeSlot = (id: number) => {
   const idx = resourceSlots.findIndex(s => s.id === id);
   if (idx < 0) return;
+  const removedBytes = SLOT_BYTES[resourceSlots[idx].type];
   resourceSlots.splice(idx, 1);
   reindexSlots();
-};
-
-const adjustLength = (delta: number) => {
-  frameDataLength.value = Math.max(1, Math.min(256, frameDataLength.value + delta));
+  frameDataLength.value = Math.max(1, frameDataLength.value - removedBytes);
 };
 
 import { useChartPath } from '../composables/useChartPath';
@@ -753,27 +796,38 @@ h1 {
   );
 }
 
-.rf-bytemap-seg.rf-bytemap-reserved {
+.rf-bytemap-seg.rf-bytemap-head {
   cursor: default;
-  opacity: 0.5;
-  border-style: dashed;
-  border-color: var(--card-border);
+  background: rgba(32, 184, 166, 0.1);
+  border: 1px solid rgba(32, 184, 166, 0.22);
+  flex: 1;
+  min-width: 24px;
 }
 
-.rf-bytemap-seg.rf-bytemap-reserved .rf-seg-add {
-  position: static;
+.rf-bytemap-seg.rf-bytemap-insert {
+  flex: 0 0 26px;
+  min-width: 26px;
+  border: 1px dashed var(--card-border);
+  background: transparent;
+  opacity: 0.45;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 13px;
+  transition: opacity 150ms, border-color 150ms, background 150ms, color 150ms;
+}
+
+.rf-bytemap-seg.rf-bytemap-insert:hover {
   opacity: 1;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background: rgba(32, 184, 166, 0.15);
+  border-color: #20b8a6;
+  background: rgba(32, 184, 166, 0.08);
   color: #20b8a6;
-  border: 1px solid rgba(32, 184, 166, 0.4);
-  font-size: 12px;
 }
 
-.rf-bytemap-seg.rf-bytemap-reserved .rf-seg-add:hover {
-  background: rgba(32, 184, 166, 0.3);
+.rf-cell.dragging {
+  opacity: 0.35;
+  z-index: 10;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  transform: scale(1.06);
 }
 
 .rf-bytemap-seg.chk {
