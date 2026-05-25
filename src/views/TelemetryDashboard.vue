@@ -13,51 +13,56 @@
         </button>
       </div>
       <div class="replay-wrap">
-        <button class="replay-btn" :class="{ on: replayState !== 'idle' }" @click.stop="replayOpen = !replayOpen" title="Replay .bin files">
-          <Icon icon="lucide:play-circle" /><span>Replay</span>
-        </button>
+        <b
+          class="replay-btn"
+          :class="replayState === 'idle' ? 'off' : 'on'"
+          @click.stop="replayOpen = !replayOpen"
+          title="Replay .bin"
+        >
+          <Icon icon="lucide:file-video" />
+        </b>
         <Transition name="popup">
           <div v-if="replayOpen" class="avatar-popup replay-popup" @click.stop>
-            <div class="popup-status" :class="replayState === 'playing' ? 'online' : 'offline'">
-              {{ replayState === 'idle' ? 'Select File' : replayState === 'loading' ? 'Loading...' : replayState === 'ready' ? 'Ready' : replayState === 'playing' ? 'Playing' : replayState === 'paused' ? 'Paused' : 'Finished' }}
+            <!-- file row -->
+            <div class="replay-file-row" :class="replayState === 'idle' ? 'dim' : 'active'">
+              <Icon icon="lucide:file-video" class="replay-file-icon" />
+              <span>{{ replayState === 'idle' ? 'No file' : replayCtrl.fileName }}</span>
             </div>
-            <div v-if="replayState === 'loading'" class="connect-detail">
-              <span>Parsing frames...</span>
+            <!-- progress -->
+            <div v-if="replayState !== 'idle' && replayState !== 'loading'" class="replay-progress">
+              <span>{{ replayCurrent }} / {{ replayTotal }}</span>
             </div>
-            <div v-else-if="replayState !== 'idle'" class="connect-detail">
-              <span>{{ replayCtrl.fileName }}</span>
-              <span>{{ replayCurrent }} / {{ replayTotal }} frames</span>
-            </div>
+            <!-- controls -->
             <div class="replay-actions">
               <template v-if="replayState === 'idle'">
                 <button class="popup-action" @click="replayChooseFile">Choose File</button>
               </template>
               <template v-else-if="replayState === 'loading'">
-                <button class="popup-action" disabled>Loading...</button>
+                <button class="popup-action" disabled>Parsing...</button>
               </template>
               <template v-else-if="replayState === 'ready'">
-                <button class="popup-action" @click="replayChooseFile">Change File</button>
+                <button class="popup-action mute" @click="replayChooseFile">Change</button>
                 <button class="popup-action" @click="replayRun">Run</button>
               </template>
               <template v-else-if="replayState === 'playing'">
                 <div class="replay-transport">
-                  <button class="popup-action replay-step" @click="replayStepBack" title="Step Back (-1)"><Icon icon="lucide:skip-back" /></button>
-                  <button class="popup-action replay-step" @click="replayPause" title="Pause"><Icon icon="lucide:pause" /></button>
-                  <button class="popup-action replay-step" @click="replayStepFwd" title="Step Forward (+1)"><Icon icon="lucide:skip-forward" /></button>
+                  <button class="popup-action" @click="replayStepBack" title="Step Back"><Icon icon="lucide:skip-back" /></button>
+                  <button class="popup-action" @click="replayPause" title="Pause"><Icon icon="lucide:pause" /></button>
+                  <button class="popup-action" @click="replayStepFwd" title="Step Forward"><Icon icon="lucide:skip-forward" /></button>
                 </div>
               </template>
               <template v-else-if="replayState === 'paused'">
                 <div class="replay-transport">
-                  <button class="popup-action replay-step" @click="replayStepBack" title="Step Back (-1)"><Icon icon="lucide:skip-back" /></button>
-                  <button class="popup-action replay-step" @click="replayRun" title="Resume"><Icon icon="lucide:play" /></button>
-                  <button class="popup-action replay-step" @click="replayStepFwd" title="Step Forward (+1)"><Icon icon="lucide:skip-forward" /></button>
+                  <button class="popup-action" @click="replayStepBack" title="Step Back"><Icon icon="lucide:skip-back" /></button>
+                  <button class="popup-action" @click="replayRun" title="Resume"><Icon icon="lucide:play" /></button>
+                  <button class="popup-action" @click="replayStepFwd" title="Step Forward"><Icon icon="lucide:skip-forward" /></button>
                 </div>
               </template>
               <template v-else-if="replayState === 'finished'">
                 <div class="replay-transport">
-                  <button class="popup-action replay-step" @click="replayStepBack" title="Step Back (-1)"><Icon icon="lucide:skip-back" /></button>
-                  <button class="popup-action replay-step" @click="replayRestart" title="Replay from start"><Icon icon="lucide:rotate-cw" /></button>
-                  <button class="popup-action replay-step danger" @click="replayExit" title="Exit replay"><Icon icon="lucide:x" /></button>
+                  <button class="popup-action mute" @click="replayStepBack" title="Step Back"><Icon icon="lucide:skip-back" /></button>
+                  <button class="popup-action" @click="replayRestart" title="Replay"><Icon icon="lucide:rotate-cw" /></button>
+                  <button class="popup-action danger" @click="replayExit" title="Exit"><Icon icon="lucide:x" /></button>
                 </div>
               </template>
             </div>
@@ -619,53 +624,69 @@ onUnmounted(() => {
   position: relative;
 }
 .replay-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border: 0;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
   border-radius: 999px;
-  background: var(--nav-tab-bg);
-  color: var(--text-muted);
-  font-weight: 700;
-  font-size: 13px;
+  background: var(--nav-tab-active);
+  font-weight: 900;
+  box-shadow: 0 12px 34px rgba(33, 58, 75, 0.12);
   cursor: pointer;
-  backdrop-filter: blur(18px);
-  transition: background 200ms, color 200ms, box-shadow 200ms;
+  transition: box-shadow 200ms, color 200ms;
+  user-select: none;
 }
-.replay-btn:hover { color: var(--text); background: var(--nav-tab-active); }
-.replay-btn.on {
-  color: #22c55e;
-  box-shadow: 0 0 0 2px #22c55e;
-}
-[data-theme="dark"] .replay-btn.on {
-  color: #4ade80;
-  box-shadow: 0 0 0 2px #4ade80;
-}
-.replay-btn svg { width: 16px; height: 16px; }
+.replay-btn svg { width: 20px; height: 20px; }
+.replay-btn.off { color: #ef4444; box-shadow: 0 0 0 2.5px #ef4444, 0 12px 34px rgba(33,58,75,.12); }
+.replay-btn.on  { color: #22c55e; box-shadow: 0 0 0 2.5px #22c55e, 0 12px 34px rgba(33,58,75,.12); }
+[data-theme="dark"] .replay-btn.off { color: #f87171; box-shadow: 0 0 0 2.5px #f87171, 0 12px 34px rgba(0,0,0,.25); }
+[data-theme="dark"] .replay-btn.on  { color: #4ade80; box-shadow: 0 0 0 2.5px #4ade80, 0 12px 34px rgba(0,0,0,.25); }
 
 .replay-popup {
   right: 0;
-  min-width: 220px;
+  min-width: 200px;
+  padding: 14px 16px 10px;
+}
+.replay-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  padding-bottom: 8px;
+}
+.replay-file-row.dim    { color: var(--text-muted); }
+.replay-file-row.active { color: #22c55e; }
+[data-theme="dark"] .replay-file-row.active { color: #4ade80; }
+.replay-file-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+.replay-progress {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+}
+
+.replay-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 .replay-transport {
   display: flex;
   gap: 6px;
-  padding: 6px 0 2px;
 }
-.replay-step {
+.replay-transport .popup-action {
   flex: 1;
   display: grid;
   place-items: center;
-  padding: 8px 0 !important;
+  padding: 7px 0;
 }
-.replay-step.danger {
-  background: rgba(239,68,68,0.12) !important;
-  color: #ef4444 !important;
+.popup-action.mute {
+  background: rgba(128,128,128,0.08) !important;
+  color: var(--text-muted) !important;
 }
-.replay-step.danger:hover {
-  background: #ef4444 !important;
-  color: #fff !important;
+.popup-action.mute:hover {
+  background: rgba(128,128,128,0.18) !important;
 }
 
 /* ── 底部导航（移动端） ── */
