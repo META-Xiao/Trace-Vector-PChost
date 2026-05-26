@@ -1,4 +1,4 @@
-import { ImageFrame } from './protocol';
+import { ImageFrame, PixelFormat, Codec } from './protocol';
 
 /**
  * 图像处理配置
@@ -24,64 +24,51 @@ export interface ProcessedImageData {
  * 图像帧处理器
  *
  * 功能：
- * - 将二进制图像数据转换为可显示的格式
- * - 兼容灰度图 (W×H×1) 和 RGB565 (W×H×2) 两种编码
- * - 缓存处理结果用于显示
+ * - 根据 PixelFormat 将二进制 Payload 转换为 RGBA 显示格式
+ * - 根据 Codec 解码 Payload（RAW/RLE/HEATSHRINK 等）
+ * - 维护 I 帧缓存用于 Tile/Patch 等 P 帧解码
  */
 export class ImageFrameProcessor {
   private readonly config: ImageProcessingConfig;
   private lastProcessedFrame: ProcessedImageData | null = null;
+  private iFrameCache: Uint8Array | null = null; // RAW I 帧缓存，用于 P 帧解码
 
   constructor(config: ImageProcessingConfig) {
     this.config = config;
   }
 
   /**
-   * 处理图像帧，转 RGBA 格式（兼容灰度和 RGB565）
+   * 处理图像帧，转 RGBA 格式
    * @param frame 原始图像帧
    * @returns 处理后的图像数据
    */
   process(frame: ImageFrame): ProcessedImageData {
-    const { frameId, width, height, imageData } = frame;
-    const graySize = width * height;
-    const rgbSize  = width * height * 2;
+    const { frameId, width, height, pixelFormat, codec, payload } = frame;
 
-    if (imageData.length !== graySize && imageData.length !== rgbSize) {
+    // 1. 解码 Payload → RAW 像素数据
+    let raw: Uint8Array;
+    if (codec === Codec.RAW) {
+      raw = payload;
+    } else {
+      raw = this.decodePayload(payload, codec, pixelFormat, width, height);
+    }
+
+    // 2. 验证 RAW 数据大小
+    const expected = this.expectedRawSize(pixelFormat, width, height);
+    if (expected > 0 && raw.length !== expected) {
       throw new Error(
-        `Invalid image data size: expected ${graySize}(gray) or ${rgbSize}(RGB565), got ${imageData.length}`,
+        `Invalid raw data size: expected ${expected} bytes for ${PixelFormat[pixelFormat]}, ` +
+        `got ${raw.length}`,
       );
     }
 
-    const pixelData = new Uint8ClampedArray(width * height * 4);
-    const pixelCount = width * height;
-
-    if (imageData.length === graySize) {
-      /* 灰度图 (旧格式): R=G=B=gray */
-      for (let i = 0; i < pixelCount; i++) {
-        const g = imageData[i];
-        pixelData[i * 4]     = g;
-        pixelData[i * 4 + 1] = g;
-        pixelData[i * 4 + 2] = g;
-        pixelData[i * 4 + 3] = 255;
-      }
-    } else {
-      /* RGB565 (新格式): 大端序，2字节/像素 */
-      for (let i = 0; i < pixelCount; i++) {
-        const hi = imageData[i * 2];
-        const lo = imageData[i * 2 + 1];
-        const rgb565 = (hi << 8) | lo;
-
-        const r5 = (rgb565 >> 11) & 0x1F;
-        const g6 = (rgb565 >> 5) & 0x3F;
-        const b5 = rgb565 & 0x1F;
-
-        const offset = i * 4;
-        pixelData[offset]     = (r5 << 3) | (r5 >> 2);   // R: 5→8 bit
-        pixelData[offset + 1] = (g6 << 2) | (g6 >> 4);   // G: 6→8 bit
-        pixelData[offset + 2] = (b5 << 3) | (b5 >> 2);   // B: 5→8 bit
-        pixelData[offset + 3] = 255;                      // A
-      }
+    // 3. 缓存 I 帧（RAW codec 的帧作为参考帧）
+    if (codec === Codec.RAW) {
+      this.iFrameCache = raw;
     }
+
+    // 4. RAW → RGBA
+    const pixelData = this.rawToRGBA(raw, pixelFormat, width, height);
 
     const processed: ProcessedImageData = {
       frameId,
@@ -93,6 +80,102 @@ export class ImageFrameProcessor {
 
     this.lastProcessedFrame = processed;
     return processed;
+  }
+
+  /** 解码非 RAW codec 的 Payload */
+  private decodePayload(
+    _payload: Uint8Array,
+    codec: Codec,
+    _pixelFormat: PixelFormat,
+    _width: number,
+    _height: number,
+  ): Uint8Array {
+    // TODO: 实现 HEATSHRINK / RLE / Tile / Patch 解码
+    throw new Error(`Codec ${Codec[codec]} (${codec}) not yet implemented`);
+  }
+
+  /** 计算给定 PixelFormat 的 RAW 帧预期字节数 */
+  private expectedRawSize(pixelFormat: PixelFormat, width: number, height: number): number {
+    switch (pixelFormat) {
+      case PixelFormat.Binary1: return Math.ceil((width * height) / 8);
+      case PixelFormat.Gray8:   return width * height;
+      case PixelFormat.RGB565:  return width * height * 2;
+      case PixelFormat.RGB888:  return width * height * 3;
+      case PixelFormat.YUV422:  return width * height * 2;
+      default: return 0;
+    }
+  }
+
+  /** RAW 像素数据 → RGBA Uint8ClampedArray */
+  private rawToRGBA(
+    raw: Uint8Array,
+    pixelFormat: PixelFormat,
+    width: number,
+    height: number,
+  ): Uint8ClampedArray {
+    const pixelCount = width * height;
+    const out = new Uint8ClampedArray(pixelCount * 4);
+
+    switch (pixelFormat) {
+      case PixelFormat.Binary1: {
+        for (let i = 0; i < pixelCount; i++) {
+          const byteIdx = i >> 3;
+          const bitIdx = 7 - (i & 7);
+          const bit = (raw[byteIdx] >> bitIdx) & 1;
+          const v = bit * 255;
+          const o = i * 4;
+          out[o] = v; out[o + 1] = v; out[o + 2] = v; out[o + 3] = 255;
+        }
+        break;
+      }
+      case PixelFormat.Gray8: {
+        for (let i = 0; i < pixelCount; i++) {
+          const g = raw[i];
+          const o = i * 4;
+          out[o] = g; out[o + 1] = g; out[o + 2] = g; out[o + 3] = 255;
+        }
+        break;
+      }
+      case PixelFormat.RGB565: {
+        for (let i = 0; i < pixelCount; i++) {
+          const hi = raw[i * 2];
+          const lo = raw[i * 2 + 1];
+          const rgb565 = (hi << 8) | lo;
+          const r5 = (rgb565 >> 11) & 0x1F;
+          const g6 = (rgb565 >> 5) & 0x3F;
+          const b5 = rgb565 & 0x1F;
+          const o = i * 4;
+          out[o]     = (r5 << 3) | (r5 >> 2);
+          out[o + 1] = (g6 << 2) | (g6 >> 4);
+          out[o + 2] = (b5 << 3) | (b5 >> 2);
+          out[o + 3] = 255;
+        }
+        break;
+      }
+      case PixelFormat.RGB888: {
+        for (let i = 0; i < pixelCount; i++) {
+          const o = i * 4;
+          out[o]     = raw[i * 3];
+          out[o + 1] = raw[i * 3 + 1];
+          out[o + 2] = raw[i * 3 + 2];
+          out[o + 3] = 255;
+        }
+        break;
+      }
+      case PixelFormat.YUV422: {
+        // 简化：仅取 Y 分量显示为灰度
+        for (let i = 0; i < pixelCount; i++) {
+          const y = raw[i * 2];
+          const o = i * 4;
+          out[o] = y; out[o + 1] = y; out[o + 2] = y; out[o + 3] = 255;
+        }
+        break;
+      }
+      default:
+        throw new Error(`Unsupported PixelFormat: ${PixelFormat[pixelFormat]}`);
+    }
+
+    return out;
   }
 
   /**

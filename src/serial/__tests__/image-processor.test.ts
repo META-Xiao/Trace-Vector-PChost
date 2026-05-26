@@ -4,7 +4,29 @@ import {
   ImageDataStore,
   ProcessedImageData,
 } from '../image-processor';
-import { ImageFrame } from '../protocol';
+import { ImageFrame, PixelFormat, Codec, makeFormat } from '../protocol';
+
+function makeFrame(
+  frameId: number,
+  width: number,
+  height: number,
+  pixelFormat: PixelFormat,
+  payload: Uint8Array,
+): ImageFrame {
+  const format = makeFormat(pixelFormat, Codec.RAW);
+  return {
+    type: 'IMAGE',
+    frameId,
+    length: 5 + payload.length,
+    width,
+    height,
+    format,
+    pixelFormat,
+    codec: Codec.RAW,
+    payload,
+    checksum: 0,
+  };
+}
 
 describe('ImageFrameProcessor', () => {
   const WIDTH = 188;
@@ -22,21 +44,12 @@ describe('ImageFrameProcessor', () => {
   });
 
   it('should process a valid grayscale image frame', () => {
-    const imageData = new Uint8Array(TOTAL_PIXELS);
+    const payload = new Uint8Array(TOTAL_PIXELS);
     for (let i = 0; i < TOTAL_PIXELS; i++) {
-      imageData[i] = i % 256;
+      payload[i] = i % 256;
     }
 
-    const frame: ImageFrame = {
-      type: 'IMAGE',
-      frameId: 100,
-      length: 4 + TOTAL_PIXELS,
-      width: WIDTH,
-      height: HEIGHT,
-      imageData,
-      checksum: 0,
-    };
-
+    const frame = makeFrame(100, WIDTH, HEIGHT, PixelFormat.Gray8, payload);
     const processed = processor.process(frame);
 
     expect(processed.frameId).toBe(100);
@@ -46,24 +59,14 @@ describe('ImageFrameProcessor', () => {
   });
 
   it('should correctly convert grayscale to RGBA', () => {
-    const imageData = new Uint8Array(TOTAL_PIXELS);
-    imageData[0] = 128;
-    imageData[1] = 255;
+    const payload = new Uint8Array(TOTAL_PIXELS);
+    payload[0] = 128;
+    payload[1] = 255;
 
-    const frame: ImageFrame = {
-      type: 'IMAGE',
-      frameId: 1,
-      length: 4 + TOTAL_PIXELS,
-      width: WIDTH,
-      height: HEIGHT,
-      imageData,
-      checksum: 0,
-    };
-
+    const frame = makeFrame(1, WIDTH, HEIGHT, PixelFormat.Gray8, payload);
     const processed = processor.process(frame);
     const pixels = processed.pixelData;
 
-    // R=G=B=gray, A=255
     expect(pixels[0]).toBe(128);
     expect(pixels[1]).toBe(128);
     expect(pixels[2]).toBe(128);
@@ -77,23 +80,13 @@ describe('ImageFrameProcessor', () => {
 
   it('should process a valid RGB565 image frame', () => {
     const RGB565_SIZE = TOTAL_PIXELS * 2;
-    const imageData = new Uint8Array(RGB565_SIZE);
-    // 填充 RGB565 纯绿色 (0x07E0): hi=0x07, lo=0xE0
+    const payload = new Uint8Array(RGB565_SIZE);
     for (let i = 0; i < TOTAL_PIXELS; i++) {
-      imageData[i * 2]     = 0x07;
-      imageData[i * 2 + 1] = 0xE0;
+      payload[i * 2]     = 0x07;
+      payload[i * 2 + 1] = 0xE0;
     }
 
-    const frame: ImageFrame = {
-      type: 'IMAGE',
-      frameId: 200,
-      length: 4 + RGB565_SIZE,
-      width: WIDTH,
-      height: HEIGHT,
-      imageData,
-      checksum: 0,
-    };
-
+    const frame = makeFrame(200, WIDTH, HEIGHT, PixelFormat.RGB565, payload);
     const processed = processor.process(frame);
 
     expect(processed.frameId).toBe(200);
@@ -104,112 +97,118 @@ describe('ImageFrameProcessor', () => {
 
   it('should correctly convert RGB565 to RGBA', () => {
     const RGB565_SIZE = TOTAL_PIXELS * 2;
-    const imageData = new Uint8Array(RGB565_SIZE);
+    const payload = new Uint8Array(RGB565_SIZE);
 
-    // pixel 0: 红色 0xF800 → R5=31 → R8=255
-    imageData[0] = 0xF8; imageData[1] = 0x00;
-    // pixel 1: 绿色 0x07E0 → G6=63 → G8=255
-    imageData[2] = 0x07; imageData[3] = 0xE0;
-    // pixel 2: 蓝色 0x001F → B5=31 → B8=255
-    imageData[4] = 0x00; imageData[5] = 0x1F;
+    payload[0] = 0xF8; payload[1] = 0x00; // red
+    payload[2] = 0x07; payload[3] = 0xE0; // green
+    payload[4] = 0x00; payload[5] = 0x1F; // blue
 
-    const frame: ImageFrame = {
-      type: 'IMAGE',
-      frameId: 1,
-      length: 4 + RGB565_SIZE,
-      width: WIDTH,
-      height: HEIGHT,
-      imageData,
-      checksum: 0,
-    };
-
+    const frame = makeFrame(1, WIDTH, HEIGHT, PixelFormat.RGB565, payload);
     const processed = processor.process(frame);
     const pixels = processed.pixelData;
 
-    // red 0xF800: R5=31→R8=255
-    expect(pixels[0]).toBe(255);
+    expect(pixels[0]).toBe(255);  // red R
     expect(pixels[1]).toBe(0);
     expect(pixels[2]).toBe(0);
     expect(pixels[3]).toBe(255);
 
-    // green 0x07E0: G6=63→G8=255
     expect(pixels[4]).toBe(0);
-    expect(pixels[5]).toBe(255);
+    expect(pixels[5]).toBe(255);  // green G
     expect(pixels[6]).toBe(0);
     expect(pixels[7]).toBe(255);
 
-    // blue 0x001F: B5=31→B8=255
     expect(pixels[8]).toBe(0);
     expect(pixels[9]).toBe(0);
-    expect(pixels[10]).toBe(255);
+    expect(pixels[10]).toBe(255); // blue B
     expect(pixels[11]).toBe(255);
   });
 
-  it('should reject invalid image data size (neither gray nor RGB565)', () => {
-    const imageData = new Uint8Array(TOTAL_PIXELS - 1);
+  it('should reject invalid image data size for fixed-size pixel formats', () => {
+    const payload = new Uint8Array(TOTAL_PIXELS - 1); // wrong size for Gray8
 
     const frame: ImageFrame = {
       type: 'IMAGE',
       frameId: 1,
-      length: 4 + TOTAL_PIXELS,
+      length: 5 + TOTAL_PIXELS, // length says TOTAL_PIXELS
       width: WIDTH,
       height: HEIGHT,
-      imageData,
+      format: makeFormat(PixelFormat.Gray8, Codec.RAW),
+      pixelFormat: PixelFormat.Gray8,
+      codec: Codec.RAW,
+      payload,
       checksum: 0,
     };
 
-    expect(() => processor.process(frame)).toThrow('Invalid image data size');
+    expect(() => processor.process(frame)).toThrow('Invalid raw data size');
   });
 
   it('should cache the last processed frame', () => {
-    const imageData = new Uint8Array(TOTAL_PIXELS);
-
-    const frame1: ImageFrame = {
-      type: 'IMAGE',
-      length: 4 + TOTAL_PIXELS,
-      frameId: 1,
-      width: WIDTH,
-      height: HEIGHT,
-      imageData,
-      checksum: 0,
-    };
-
+    const payload1 = new Uint8Array(TOTAL_PIXELS);
+    payload1.fill(128);
+    const frame1 = makeFrame(1, WIDTH, HEIGHT, PixelFormat.Gray8, payload1);
     const processed1 = processor.process(frame1);
     expect(processor.getLastFrame()).toBe(processed1);
 
-    const frame2: ImageFrame = {
-      type: 'IMAGE',
-      length: 4 + TOTAL_PIXELS,
-      frameId: 2,
-      width: WIDTH,
-      height: HEIGHT,
-      imageData,
-      checksum: 0,
-    };
-
+    const payload2 = new Uint8Array(TOTAL_PIXELS);
+    payload2.fill(255);
+    const frame2 = makeFrame(2, WIDTH, HEIGHT, PixelFormat.Gray8, payload2);
     const processed2 = processor.process(frame2);
     expect(processor.getLastFrame()).toBe(processed2);
     expect(processor.getLastFrame()).not.toBe(processed1);
   });
 
   it('should clear cached frame', () => {
-    const imageData = new Uint8Array(TOTAL_PIXELS);
-
-    const frame: ImageFrame = {
-      type: 'IMAGE',
-      frameId: 1,
-      length: 4 + TOTAL_PIXELS,
-      width: WIDTH,
-      height: HEIGHT,
-      imageData,
-      checksum: 0,
-    };
-
+    const payload = new Uint8Array(TOTAL_PIXELS);
+    const frame = makeFrame(1, WIDTH, HEIGHT, PixelFormat.Gray8, payload);
     processor.process(frame);
     expect(processor.getLastFrame()).not.toBeNull();
 
     processor.clear();
     expect(processor.getLastFrame()).toBeNull();
+  });
+
+  it('should handle Binary1 pixel format', () => {
+    const payload = new Uint8Array(Math.ceil(TOTAL_PIXELS / 8));
+    payload[0] = 0xFF; // first 8 pixels all on
+    const frame = makeFrame(1, WIDTH, HEIGHT, PixelFormat.Binary1, payload);
+    const processed = processor.process(frame);
+    const pixels = processed.pixelData;
+
+    expect(pixels[0]).toBe(255); // white
+    expect(pixels[1]).toBe(255);
+    expect(pixels[2]).toBe(255);
+    expect(pixels[3]).toBe(255);
+  });
+
+  it('should handle RGB888 pixel format', () => {
+    const payload = new Uint8Array(TOTAL_PIXELS * 3);
+    payload[0] = 255; payload[1] = 0; payload[2] = 0; // red pixel
+    const frame = makeFrame(1, WIDTH, HEIGHT, PixelFormat.RGB888, payload);
+    const processed = processor.process(frame);
+    const pixels = processed.pixelData;
+
+    expect(pixels[0]).toBe(255);
+    expect(pixels[1]).toBe(0);
+    expect(pixels[2]).toBe(0);
+    expect(pixels[3]).toBe(255);
+  });
+
+  it('should throw for unsupported codec', () => {
+    const payload = new Uint8Array(TOTAL_PIXELS);
+    const frame: ImageFrame = {
+      type: 'IMAGE',
+      frameId: 1,
+      length: 5 + TOTAL_PIXELS,
+      width: WIDTH,
+      height: HEIGHT,
+      format: makeFormat(PixelFormat.Gray8, Codec.HEATSHRINK),
+      pixelFormat: PixelFormat.Gray8,
+      codec: Codec.HEATSHRINK,
+      payload,
+      checksum: 0,
+    };
+
+    expect(() => processor.process(frame)).toThrow('not yet implemented');
   });
 });
 

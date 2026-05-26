@@ -1,7 +1,27 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ImageProcessManager, ImageProcessEvent } from '../image-manager';
 import { TelemetrySerialManager, SerialEvent } from '../manager';
-import { ImageFrame } from '../protocol';
+import { ImageFrame, PixelFormat, Codec, makeFormat } from '../protocol';
+
+function createImageFrame(frameId: number): ImageFrame {
+  const payload = new Uint8Array(188 * 120);
+  for (let i = 0; i < payload.length; i++) {
+    payload[i] = i % 256;
+  }
+
+  return {
+    type: 'IMAGE',
+    frameId,
+    length: 5 + payload.length,
+    width: 188,
+    height: 120,
+    format: makeFormat(PixelFormat.Gray8, Codec.RAW),
+    pixelFormat: PixelFormat.Gray8,
+    codec: Codec.RAW,
+    payload,
+    checksum: 0,
+  };
+}
 
 describe('ImageProcessManager', () => {
   let manager: ImageProcessManager;
@@ -9,7 +29,6 @@ describe('ImageProcessManager', () => {
   let serialEventHandlers: ((event: SerialEvent) => void)[] = [];
 
   beforeEach(() => {
-    // 创建 mock 的串口管理器
     mockSerialManager = {
       on: vi.fn((handler: (event: SerialEvent) => void) => {
         serialEventHandlers.push(handler);
@@ -28,24 +47,6 @@ describe('ImageProcessManager', () => {
     manager = new ImageProcessManager(mockSerialManager);
     serialEventHandlers = [];
   });
-
-  const createImageFrame = (frameId: number): ImageFrame => {
-    const imageData = new Uint8Array(188 * 120);
-    // 填充渐变数据
-    for (let i = 0; i < imageData.length; i++) {
-      imageData[i] = i % 256;
-    }
-
-    return {
-      type: 'IMAGE',
-      frameId,
-      length: 4 + imageData.length,
-      width: 188,
-      height: 120,
-      imageData,
-      checksum: 0,
-    };
-  };
 
   it('should subscribe to serial events on start', () => {
     manager.start();
@@ -242,16 +243,19 @@ describe('ImageProcessManager', () => {
     const eventHandler = vi.fn();
     manager.on(eventHandler);
 
-    // 模拟处理错误
+    // 模拟处理错误: payload size doesn't match expected for Gray8
     serialEventHandlers[0]({
       type: 'FRAME',
       frame: {
         type: 'IMAGE',
         frameId: 1,
-        length: 104,  // 4 + 100 (mismatched with 188*120)
+        length: 5 + 100,
         width: 188,
         height: 120,
-        imageData: new Uint8Array(100), // 错误的大小会触发错误
+        format: makeFormat(PixelFormat.Gray8, Codec.RAW),
+        pixelFormat: PixelFormat.Gray8,
+        codec: Codec.RAW,
+        payload: new Uint8Array(100), // 错误大小: 100 != 188*120
         checksum: 0,
       } as any,
     });
