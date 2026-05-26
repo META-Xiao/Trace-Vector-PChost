@@ -29,43 +29,71 @@
 - `Width`: 图像宽度（像素，u8）
 - `Height`: 图像高度（像素，u8）
 - `Format`: 高4位表示PixelFormat `Payload` 原始像素数据格式（u8），低4位表示Codec 对于该格式下的编码方式  
+
     **PixelFormat**:
-    - `0` Binary1 二值化图（1bpp），每8像素打包为1B，常用于巡线/阈值化图像
-    - `1` Gray8 灰度图（8bpp）
-    - `2` RGB565 彩色图（16bpp），大端序： `RRRRRGGG GGGBBBBB`
-    - `3` RGB888 真彩色图（24bpp），顺序：R G B
-    - `4` YUV422 色度抽样格式（16bpp），每2像素共享一组UV，常用于摄像头原始输出
-    - `5` JPEG 有损压缩图像，Payload 为完整 JPEG 数据流，Width/Height 仍保留用于快速解析
-    - `6` PNG，无损压缩图像，Payload 为完整 PNG 数据流
-    - `7` UserDefined 用户自定义格式，上位机通过插件/脚本解析  
-    **Codec**: 
-    - `0`: RAW 按照 `PixelFormat` 格式输出的完整图像
-    - `1`: RLE 将ROW的相同数据压缩成 `<val,len>` 二值化图和灰度图适配较好
-    - `2`: Diff 对视频流的压缩，I帧作为RAW，P帧只传和RAW的差。例如MCU我们可以以10帧为周期，第一帧使用RAW作为I帧，MCU/上位机存储该RAW，之后的9帧就是P帧。那么Diff=P帧-I帧，我们知道现实世界相邻帧的某个像素变化不会太大，那么我们这里取Diff的范围为原像素范围的一半
-    - `3`: Diff+RLE 同上，这个值的差（Diff=P帧-I帧），然后对这个差结果矩阵进行RLE，这里RLE的方式为：  
-        1. 将差分矩阵某一行全部变成二进制记法，例如 `1001 0001`
-        2. 我们规定u16为 `x=0x00~0x7F`表示有`x`个连续的0， `x=0x80~0xFF`表示有`x-0x80` 个1，那么我们可通过很多个在[0x00, 0x7F] 范围内的数表示这么多个0，1同理  
-    **该方法适用于异或结果连续1/0长度较大时更加有效，否者反而会更复杂**
-    - `4`: Tile 将图像按照固定规则划分为一个个小区块，如果这个区块相对于I帧有更新，那么此时P帧直接传该区块的数据即可，具体编码是：  
-    
+
+    | 值 | 名称 | 说明 |
+    |----|------|------|
+    | `0` | Binary1 | 二值化图（1bpp），每8像素打包为1B，常用于巡线/阈值化图像 |
+    | `1` | Gray8 | 灰度图（8bpp） |
+    | `2` | RGB565 | 彩色图（16bpp），大端序：`RRRRRGGG GGGBBBBB` |
+    | `3` | RGB888 | 真彩色图（24bpp），顺序：R G B |
+    | `4` | YUV422 | 色度抽样格式（16bpp），每2像素共享一组UV，常用于摄像头原始输出 |
+    | `5` | JPEG | 有损压缩图像，Payload 为完整 JPEG 数据流 |
+    | `6` | PNG | 无损压缩图像，Payload 为完整 PNG 数据流 |
+    | `7` | UserDefined | 用户自定义格式，上位机通过插件/脚本解析 |
+
+    **Codec**:
+
+    | 值 | 名称 | 说明 |
+    |----|------|------|
+    | `0` | RAW | 按 PixelFormat 格式输出的完整原始图像，不做任何压缩 |
+    | `1` | RLE | 游程编码，连续相同数据压缩为 `<val, len>` 对，适合二值化图和灰度图 |
+    | `2` | HEATSHRINK | 面向MCU的小型LZ压缩算法，支持Streaming，RAM占用低 |
+    | `3` | Tile | 变化检测：分块对比I/P帧，仅传输变化区块（无熵编码，调试用） |
+    | `4` | Patch | 变化检测：最小矩形覆盖变化区域，传矩形内RAW数据（无熵编码，调试用） |
+    | `5` | Tile+HEATSHRINK | Tile 变化检测后 HEATSHRINK 压缩变化区块数据（**生产主力**） |
+    | `6` | Patch+HEATSHRINK | Patch 变化检测后 HEATSHRINK 压缩矩形内数据（**生产主力**） |
+
+    **Codec 3 — Tile 编码格式**：
+
+    将图像按 `CutInfo` 指定的网格划分，比较 I/P 帧找出变化的区块，Payload 格式：
+
     ```
-    | Sum  | CutInfo | BlockID | Data | BlockID | Data | ...   
-    | 1B   |    1B   |   1B    | ...  |  1B     | ...  | ...
+    | Sum  | CutInfo | BlockID | Data | BlockID | Data | ... |
+    | 1B   | 1B      | 1B      | ...  | 1B      | ...  | ... |
     ```
 
-        - `Sum` 此时需要更新块的数量
-        - `CutInf` 划分方法，高4位表示height被划分成了几块，低4位表示weight被划分成了几块，由于最大也就是 `0xFF` 同时`BlockID`可以表示256个数，那么这是可以完全被利用的
-        - `BlockID` 表示需要更新块的一维下标
-    - `5`: Patch 补丁方法更新P帧，找到最小的矩形，使得该矩形能够覆盖与I帧变化的所有像素点，然后将该矩形的边界和矩形内更新即可，具体编码是：
+    - `Sum`（1B）：变化区块的数量
+    - `CutInfo`（1B）：高4位=height划分数，低4位=width划分数。最大 16×16=256 块
+    - `BlockID`（1B）：变化区块的一维下标（行优先，0-255）
+    - `Data`：该区块的RAW像素数据，每个区块尺寸 = `(W/块数_w) × (H/块数_h) × bpp`
+
+    **Codec 4 — Patch 编码格式**：
+
+    找到覆盖所有变化像素的最小矩形，Payload 格式：
+
     ```
-    | x1 | x2 | y1 | y2 | Data | 
-    | 1B | 1B | 1B | 1B | ...  | 
+    | x1 | y1 | x2 | y2 | Data |
+    | 1B | 1B | 1B | 1B | ...  |
     ```
-    - `6`: HEATSHRINK 面向MCU的小型LZ压缩算法，支持Streaming，RAM占用低
-    - `7`: LZ4 高速字典压缩，解压速度极快，适合高性能MCU
-    
-            
-**注意这里使用I帧和P帧即差分压缩视频流的方法，上位机端总会存上一个有效帧的RAW，方便传P帧时处理**
+
+    - `(x1, y1)`：变化矩形左上角坐标（含）
+    - `(x2, y2)`：变化矩形右下角坐标（含）
+    - `Data`：矩形内RAW像素数据，行优先，尺寸 = `(x2-x1+1) × (y2-y1+1) × bpp`
+
+    **Codec 5/6 — 复合编码**：
+
+    变化检测与熵编码分层组合。以 Codec 5（Tile+HEATSHRINK）为例：
+
+    1. Tile 算法比较 I/P 帧，找出变化区块
+    2. 将变化的 `BlockID|Data|BlockID|Data|...` 拼接
+    3. 对拼接后的整段数据进行 HEATSHRINK 压缩
+    4. Payload = HEATSHRINK(拼接数据)
+
+    Codec 6（Patch+HEATSHRINK）同理：Patch 选出变化矩形 -> `x1|y1|x2|y2|Data` 拼接 -> HEATSHRINK 压缩。
+
+    > **I/P 帧机制**：上位机始终缓存上一有效帧的 RAW 数据。P 帧（Codec 3/4/5/6）依赖 I 帧解码，I 帧丢失时上位机丢弃后续 P 帧直至收到新 I 帧（通常定期插入）。
 
 ---
 
@@ -184,33 +212,49 @@ checksum = (byte[0] + byte[1] + ... + byte[N-1]) & 0xFF
 while True:
     byte = read_byte()
 
-    if byte == 0xCC:          # 图传帧 (RGB565 编码，兼容旧灰度格式)
+    if byte == 0xCC:          # 图传帧
         length    = read_uint16_be()   # 帧头后总字节数
         frame_id  = read_uint16_be()
         width     = read_uint8()
         height    = read_uint8()
-        # ImageData 字节数 = length - 4 (已读 Frame+Width+Height)
-        data_size = length - 4
-        pixels    = read_bytes(data_size)
-        checksum  = read_uint8()
+        format    = read_uint8()
+        pixel_fmt = (format >> 4) & 0x0F   # 高4位: PixelFormat
+        codec     = format & 0x0F           # 低4位: Codec
+        # Payload 字节数 = length - 5 (已读 Frame+Width+Height+Format)
+        payload_size = length - 5
+        payload  = read_bytes(payload_size)
+        checksum = read_uint8()
         # 验证校验和
-        # 按数据大小自动识别格式：
-        #   data_size == W×H     → 灰度图 (旧格式)
-        #   data_size == W×H×2   → RGB565 大端序 (新格式)
-        #   其他                   → 丢弃
-        if data_size == width * height:
-            display_grayscale(pixels, width, height)
-        elif data_size == width * height * 2:
-            display_rgb565(pixels, width, height)
+
+        # 解码
+        raw = None
+        if codec == 0:       # RAW
+            raw = payload
+        elif codec == 1:     # RLE
+            raw = rle_decode(payload, width, height, pixel_fmt)
+        elif codec == 2:     # HEATSHRINK
+            raw = heatshrink_decompress(payload)
+        elif codec == 3:     # Tile (P帧，无熵编码)
+            raw = tile_decode(payload, last_i_frame)
+        elif codec == 4:     # Patch (P帧，无熵编码)
+            raw = patch_decode(payload, last_i_frame)
+        elif codec == 5:     # Tile+HEATSHRINK (P帧，复合)
+            raw = tile_decode(heatshrink_decompress(payload), last_i_frame)
+        elif codec == 6:     # Patch+HEATSHRINK (P帧，复合)
+            raw = patch_decode(heatshrink_decompress(payload), last_i_frame)
+
+        if raw is not None:
+            last_i_frame = raw  # 缓存为下一 P 帧的参考帧
+            display(raw, width, height, pixel_fmt)
 
     elif byte == 0xDD:        # 日志帧
-        length    = read_uint16_be()   # 最大 256
+        length    = read_uint16_be()
         log_data  = read_bytes(length)
         checksum  = read_uint8()
         # 验证校验和后输出 UTF-8 文本
 
     elif byte == 0xEE:        # 资源帧
-        length    = read_uint16_be()   # 帧头后总字节数
+        length    = read_uint16_be()
         data      = read_bytes(length)
         checksum  = read_uint8()
         # 根据 Settings -> Resources 配置的 slot 列表动态解析 data
@@ -224,5 +268,5 @@ while True:
 
 ---
 
-**文档版本**: 3.1  
-**更新日期**: 2026-05-25
+**文档版本**: 3.2
+**更新日期**: 2026-05-27
