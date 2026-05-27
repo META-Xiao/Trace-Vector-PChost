@@ -26,6 +26,7 @@ export class TelemetrySerialManager {
   private portManager: SerialPortManager;
   private frameParser: FrameParser;
   private eventHandlers: Set<SerialEventHandler> = new Set();
+  private rawHandlers: Set<(data: Uint8Array) => void> = new Set();
   private isReading = false;
   private readAbortController: AbortController | null = null;
 
@@ -102,6 +103,14 @@ export class TelemetrySerialManager {
   }
 
   /**
+   * 订阅原始串口数据（解析前）
+   */
+  onRawData(handler: (data: Uint8Array) => void): () => void {
+    this.rawHandlers.add(handler);
+    return () => { this.rawHandlers.delete(handler); };
+  }
+
+  /**
    * 发送数据
    */
   async write(data: Uint8Array): Promise<void> {
@@ -146,8 +155,12 @@ export class TelemetrySerialManager {
       for await (const bytes of this.portManager.readBytes()) {
         if (!this.isReading) break;
 
+        // 通知原始数据监听器（录制等）
+        for (const h of this.rawHandlers) {
+          try { h(bytes); } catch (e) { console.error('Raw handler error:', e); }
+        }
+
         // 解析帧
-        console.debug('[MCU RX]', bytes);
         const results = this.frameParser.parse(bytes);
 
         for (const result of results) {
