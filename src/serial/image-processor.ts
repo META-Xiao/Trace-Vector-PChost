@@ -63,7 +63,7 @@ export class ImageFrameProcessor {
     }
 
     // 3. 缓存参考帧（RAW 和 Tile 的 decoded raw 都作为后续 P 帧的参考）
-    if (codec === Codec.RAW || codec === Codec.Tile) {
+    if (codec === Codec.RAW || codec === Codec.Tile || codec === Codec.Patch) {
       this.iFrameCache = raw;
     }
 
@@ -100,6 +100,12 @@ export class ImageFrameProcessor {
       }
       const expectedSize = this.expectedRawSize(pixelFormat, width, height);
       return tileDecode(payload, this.iFrameCache, expectedSize, pixelFormat, width, height);
+    }
+    if (codec === Codec.Patch) {
+      if (!this.iFrameCache) {
+        throw new Error('Patch P-frame received without I-frame cache');
+      }
+      return patchDecode(payload, this.iFrameCache, pixelFormat, width);
     }
     throw new Error(`Codec ${Codec[codec]} (${codec}) not yet implemented`);
   }
@@ -370,6 +376,36 @@ class BitReader {
 }
 
 const HSE_MIN_MATCH = 2;
+
+// ── Patch decoder ─────────────────────────────────────────────────
+
+function patchDecode(
+  payload: Uint8Array,
+  iFrameCache: Uint8Array,
+  pixelFormat: PixelFormat,
+  width: number,
+): Uint8Array {
+  let off = 0;
+  const x1 = payload[off++];
+  const y1 = payload[off++];
+  const x2 = payload[off++];
+  const y2 = payload[off++];
+  const rw = x2 - x1 + 1;
+  const rh = y2 - y1 + 1;
+  const bpp = pixelFormat === PixelFormat.RGB565 ? 2 : 1;
+  const rowStride = width * bpp;
+
+  const output = new Uint8Array(iFrameCache);
+
+  for (let row = 0; row < rh; row++) {
+    const srcOff = off;
+    const dstOff = (y1 + row) * rowStride + x1 * bpp;
+    const rowBytes = rw * bpp;
+    output.set(payload.subarray(srcOff, srcOff + rowBytes), dstOff);
+    off += rowBytes;
+  }
+  return output;
+}
 
 // ── Tile decoder ──────────────────────────────────────────────────
 
