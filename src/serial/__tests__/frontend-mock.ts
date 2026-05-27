@@ -1,11 +1,13 @@
 import { TelemetrySerialManager } from '../manager';
+import { PixelFormat, Codec, makeFormat } from '../protocol';
 
 /**
  * 前端开发用 mock：通过真实的 TelemetrySerialManager.emit() 注入帧，
  * 驱动 ResourceManager / LogProcessManager，与硬件接入时数据流完全一致。
  */
-const IMAGE_DATA = new Uint8Array(188 * 120); // 灰度全黑占位图
+const GRAY_PAYLOAD = new Uint8Array(188 * 120); // 灰度全黑占位图
 let mockFrameId = 0;
+const DEFAULT_FORMAT = makeFormat(PixelFormat.Gray8, Codec.RAW);
 
 export function startFrontendMock(serialManager: TelemetrySerialManager): () => void {
   let t = 0;
@@ -20,17 +22,20 @@ export function startFrontendMock(serialManager: TelemetrySerialManager): () => 
     () => `${ts()} [WARN] Frame drop detected`,
   ];
 
-  // IMAGE 帧 @25fps
+  // IMAGE 帧 @25fps (灰度 188×120, RAW codec)
   const imageTimer = setInterval(() => {
     serialManager.emit({
       type: 'FRAME',
       frame: {
         type: 'IMAGE',
         frameId: mockFrameId++ & 0xFFFF,
-        length: 4 + 188 * 120,  // Frame(2) + Width(1) + Height(1) + ImageData
+        length: 5 + GRAY_PAYLOAD.length,  // Frame(2)+W(1)+H(1)+Fmt(1)+Payload
         width: 188,
         height: 120,
-        imageData: IMAGE_DATA,
+        format: DEFAULT_FORMAT,
+        pixelFormat: PixelFormat.Gray8,
+        codec: Codec.RAW,
+        payload: GRAY_PAYLOAD,
         checksum: 0,
       },
     });
@@ -44,11 +49,11 @@ export function startFrontendMock(serialManager: TelemetrySerialManager): () => 
     const speed    = Math.floor(90  + Math.random() * 390);
     const servo    = Math.floor(80  + Math.random() * 820);
 
-    // resData = CPU(u8) + ROM(u16) + RAM(u16) + Speed(i16) + Servo(i16) = 9B
+    // resData = CPU(u8) + RAM(u16) + ROM(u16) + Speed(i16) + Servo(i16) = 9B
     const resData = new Uint8Array(9);
     resData[0] = cpu;
-    resData[1] = (romFree >> 8) & 0xFF; resData[2] = romFree & 0xFF;
-    resData[3] = (ramFree >> 8) & 0xFF; resData[4] = ramFree & 0xFF;
+    resData[1] = (ramFree >> 8) & 0xFF; resData[2] = ramFree & 0xFF;
+    resData[3] = (romFree >> 8) & 0xFF; resData[4] = romFree & 0xFF;
     resData[5] = (speed >> 8) & 0xFF;   resData[6] = speed & 0xFF;
     resData[7] = (servo >> 8) & 0xFF;   resData[8] = servo & 0xFF;
     serialManager.emit({

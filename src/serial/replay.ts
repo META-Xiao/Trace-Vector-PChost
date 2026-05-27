@@ -1,0 +1,247 @@
+/**
+ * 二进制文件回放控制器
+ *
+ * 读取 MCU 输出的 TVBIN2 .bin 文件，通过 FrameParser 解析后注入 serialManager 事件管道，
+ * 复用现有的图像/日志/资源显示管线。支持播放/暂停/逐帧进退/重播。
+ *
+ * TVBIN2 格式:
+ *   Magic:   "TVBIN2"  (6 bytes)
+ *   Baud:    uint16 LE (2 bytes, baud rate / 100)
+ *   [Chunk]:
+ *     delta_ms: uint16 LE (2 bytes) — 距上一个 chunk 的毫秒数
+ *     data_len: uint16 LE (2 bytes)
+ *     data:     uint8[data_len]
+ */
+import { FrameParser, FrameParseError } from './parser';
+import type { TelemetryFrame } from './protocol';
+import type { TelemetrySerialManager } from './manager';
+
+export type ReplayState = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'finished';
+
+export interface ReplayEvents {
+  onStateChange?: (state: ReplayState) => void;
+  onProgress?: (current: number, total: number) => void;
+}
+
+const MAGIC_V2 = new Uint8Array([0x54, 0x56, 0x42, 0x49, 0x4E, 0x32]); // "TVBIN2"
+
+export class ReplayController {
+  private parser = new FrameParser();
+  private serialManager: TelemetrySerialManager;
+
+  private frames: TelemetryFrame[] = [];
+  private _state: ReplayState = 'idle';
+  private _fileName = '';
+  private _currentIdx = 0;
+  private _playTimer: ReturnType<typeof setTimeout> | null = null;
+  private _speed = 1.0;
+
+  /** 每帧对应的 delta 时间（ms），与 frames 一一对应 */
+  private _deltas: number[] = [];
+
+  private events: ReplayEvents = {};
+
+  constructor(serialManager: TelemetrySerialManager) {
+    this.serialManager = serialManager;
+  }
+
+  get state(): ReplayState { return this._state; }
+  get fileName(): string { return this._fileName; }
+  get currentIndex(): number { return this._currentIdx; }
+  get totalFrames(): number { return this.frames.length; }
+  get speed(): number { return this._speed; }
+  set speed(v: number) { this._speed = Math.max(0.01, Math.min(10.0, v)); }
+
+  setEvents(e: ReplayEvents) { this.events = e; }
+
+  /** 加载 .bin 文件并解析全部帧 */
+  async loadFile(file: File): Promise<void> {
+    this._state = 'loading';
+    this.events.onStateChange?.('loading');
+
+    const buf = await file.arrayBuffer();
+    const data = new Uint8Array(buf);
+    this._fileName = file.name;
+
+    this._parseV2(data);
+
+    this._currentIdx = 0;
+    this._state = 'ready';
+    this.events.onStateChange?.('ready');
+    this.events.onProgress?.(0, this.frames.length);
+
+    const kb = (data.length / 1024).toFixed(0);
+    const totalMs = this._deltas.reduce((a, b) => a + b, 0);
+    console.log(`[replay] 加载完成: ${this.frames.length} 帧, ${kb} KB, 录制时长 ${(totalMs / 1000).toFixed(1)}s`);
+  }
+
+  /** 开始/继续播放 */
+  play(): void {
+    if (this._state !== 'ready' && this._state !== 'paused') return;
+    this._state = 'playing';
+    this.events.onStateChange?.('playing');
+    this._tick();
+  }
+
+  /** 暂停 */
+  pause(): void {
+    if (this._state !== 'playing') return;
+    this._state = 'paused';
+    this.events.onStateChange?.('paused');
+    if (this._playTimer !== null) {
+      clearTimeout(this._playTimer);
+      this._playTimer = null;
+    }
+  }
+
+  /** 快进一帧 */
+  stepForward(): void {
+    if (this._state !== 'paused' && this._state !== 'ready') return;
+    if (this._currentIdx < this.frames.length) {
+      this._emitFrame(this._currentIdx);
+      this._currentIdx++;
+      this.events.onProgress?.(this._currentIdx, this.frames.length);
+      if (this._currentIdx >= this.frames.length) {
+        this._onFinished();
+      }
+    }
+  }
+
+  /** 倒退一帧 */
+  stepBackward(): void {
+    if (this._state !== 'paused' && this._state !== 'ready' && this._state !== 'finished') return;
+    if (this._currentIdx > 0) {
+      this._currentIdx--;
+      this._emitFrame(this._currentIdx);
+      this.events.onProgress?.(this._currentIdx, this.frames.length);
+      if (this._state === 'finished') {
+        this._state = 'paused';
+        this.events.onStateChange?.('paused');
+      }
+    }
+  }
+
+  /** 重播（从头开始） */
+  replay(): void {
+    if (this._state !== 'finished' && this._state !== 'paused') return;
+    this._currentIdx = 0;
+    this.events.onProgress?.(0, this.frames.length);
+    this._state = 'ready';
+    this.events.onStateChange?.('ready');
+    this.play();
+  }
+
+  /** 退出回放 */
+  exit(): void {
+    this.pause();
+    this.frames = [];
+    this._deltas = [];
+    this.parser.reset();
+    this._currentIdx = 0;
+    this._fileName = '';
+    this._state = 'idle';
+    this.events.onStateChange?.('idle');
+  }
+
+  /* ================================================================
+   * 内部 — 加载
+   * ================================================================ */
+
+  /** 解析 TVBIN2 文件，计算每帧的 delta 时间 */
+  private _parseV2(data: Uint8Array): void {
+    this.frames = [];
+    this._deltas = [];
+    this.parser.reset();
+
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    let off = MAGIC_V2.length;
+
+    const baud = view.getUint16(off, true) * 100;
+    off += 2;
+    console.log(`[replay] 录制波特率: ${baud}`);
+
+    let absTime = 0;       // 当前 chunk 的绝对时间戳（ms）
+    let lastEmitTime = 0;  // 上一个帧的绝对时间戳
+    let isFirstChunk = true;
+
+    while (off + 4 <= data.length) {
+      const deltaMs = view.getUint16(off, true); off += 2;
+      const len = view.getUint16(off, true); off += 2;
+
+      if (off + len > data.length) {
+        console.warn(`[replay] chunk 越界: off=${off} len=${len} total=${data.length}`);
+        break;
+      }
+
+      // 首 chunk 不计时（start → 首数据到达的延迟对回放无意义）
+      if (!isFirstChunk) absTime += deltaMs;
+      isFirstChunk = false;
+
+      const rawChunk = data.slice(off, off + len);
+      off += len;
+
+      const results = this.parser.parse(rawChunk);
+      for (const r of results) {
+        if (!(r instanceof FrameParseError)) {
+          this.frames.push(r);
+          this._deltas.push(absTime - lastEmitTime);
+          lastEmitTime = absTime;
+        }
+      }
+    }
+    this.parser.reset();
+  }
+
+  /* ================================================================
+   * 内部 — 播放
+   * ================================================================ */
+
+  private _tick(): void {
+    if (this._state !== 'playing') return;
+
+    // 在一个 tick 内连续发送属于同一时刻（delta=0）的帧
+    // 遇到 delta > 0 的帧时停止，等待对应时间后再发送
+    const BATCH = 20;
+    let sent = 0;
+
+    while (this._currentIdx < this.frames.length && sent < BATCH) {
+      const f = this.frames[this._currentIdx];
+
+      // 遇到有等待时间的帧，如果已经发过帧了，停下来等
+      if (sent > 0 && (this._deltas[this._currentIdx] ?? 0) > 0) break;
+
+      // IMAGE 帧较大，单独发送给 UI 渲染留时间
+      if (f.type === 'IMAGE' && sent > 0) break;
+
+      this._emitFrame(this._currentIdx);
+      this._currentIdx++;
+      sent++;
+    }
+
+    this.events.onProgress?.(this._currentIdx, this.frames.length);
+
+    if (this._currentIdx >= this.frames.length) {
+      this._onFinished();
+    } else {
+      const delta = this._deltas[this._currentIdx] ?? 0;
+      // 至少等 1ms，让浏览器有时间渲染
+      const delay = Math.max(delta, 1) / this._speed;
+      this._playTimer = setTimeout(() => this._tick(), delay);
+    }
+  }
+
+  private _emitFrame(idx: number): void {
+    const f = this.frames[idx];
+    if (!f) return;
+    this.serialManager.emit({ type: 'FRAME', frame: f });
+  }
+
+  private _onFinished(): void {
+    this._state = 'finished';
+    this.events.onStateChange?.('finished');
+    if (this._playTimer !== null) {
+      clearTimeout(this._playTimer);
+      this._playTimer = null;
+    }
+  }
+}

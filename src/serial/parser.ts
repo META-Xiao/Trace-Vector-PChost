@@ -6,8 +6,10 @@ import {
   LogFrame,
   ResourceFrame,
   FrameParseState,
-  calculateChecksum,
   verifyChecksum,
+  parseFormat,
+  PixelFormat,
+  Codec,
 } from './protocol';
 
 /**
@@ -20,6 +22,22 @@ export class FrameParseError extends Error {
   ) {
     super(message);
     this.name = 'FrameParseError';
+  }
+}
+
+/** 计算给定 PixelFormat 的 RAW 帧预期数据大小，非 RAW codec 返回 0 表示不校验 */
+function expectedPayloadSize(pixelFormat: PixelFormat, width: number, height: number): number {
+  switch (pixelFormat) {
+    case PixelFormat.Binary1: return Math.ceil((width * height) / 8);
+    case PixelFormat.Gray8:   return width * height;
+    case PixelFormat.RGB565:  return width * height * 2;
+    case PixelFormat.RGB888:  return width * height * 3;
+    case PixelFormat.YUV422:  return width * height * 2;
+    case PixelFormat.JPEG:
+    case PixelFormat.PNG:
+    case PixelFormat.UserDefined:
+    default:
+      return 0; // 变长，不校验
   }
 }
 
@@ -127,7 +145,7 @@ export class FrameParser {
   }
 
   /**
-   * 读图传帧数据：Length(2) + Frame(2) + Width(1) + Height(1) + ImageData(W×H) + Checksum(1)
+   * 读图传帧数据：Length(2) + Frame(2) + Width(1) + Height(1) + Format(1) + Payload(N) + Checksum(1)
    * 先读前2字节获取 Length，动态确定帧边界，再按 Length 读取剩余数据。
    */
   private handleImageData(byte: number): TelemetryFrame | null {
@@ -154,15 +172,22 @@ export class FrameParser {
     const frameId = (this.buffer[2] << 8) | this.buffer[3];
     const width = this.buffer[4];
     const height = this.buffer[5];
-    const imageDataSize = length - 4; // 减去 Frame(2)+Width(1)+Height(1)
-    const imageData = this.buffer.slice(6, 6 + imageDataSize);
+    const format = this.buffer[6];
+    const payloadSize = length - 5; // 减去 Frame(2)+Width(1)+Height(1)+Format(1)
+    const payload = this.buffer.slice(7, 7 + payloadSize);
     const checksum = this.buffer[this.bufferPos - 1];
 
-    if (imageDataSize !== width * height) {
-      throw new FrameParseError(
-        'IMAGE_SIZE_MISMATCH',
-        `Image size mismatch: Length implies ${imageDataSize} bytes, but ${width}×${height}=${width * height}`,
-      );
+    // 验证 Payload 尺寸：仅 RAW codec 校验（压缩/编码 codec 不适用）
+    const { pixelFormat, codec } = parseFormat(format);
+    if (codec === Codec.RAW) {
+      const expectedSize = expectedPayloadSize(pixelFormat, width, height);
+      if (expectedSize > 0 && payloadSize !== expectedSize) {
+        throw new FrameParseError(
+          'IMAGE_SIZE_MISMATCH',
+          `Image size mismatch: expected ${expectedSize} bytes for ${PixelFormat[pixelFormat]}, ` +
+          `got ${payloadSize} bytes (${width}×${height})`,
+        );
+      }
     }
 
     const dataToCheck = new Uint8Array(1 + this.bufferPos - 1);
@@ -171,7 +196,7 @@ export class FrameParser {
     if (!verifyChecksum(dataToCheck, checksum)) {
       throw new FrameParseError(
         'IMAGE_CHECKSUM_ERROR',
-        `Image frame checksum mismatch: expected ${checksum}, got ${calculateChecksum(dataToCheck)}`,
+        `Image frame checksum mismatch`,
       );
     }
 
@@ -183,7 +208,10 @@ export class FrameParser {
       frameId,
       width,
       height,
-      imageData: new Uint8Array(imageData),
+      format,
+      pixelFormat,
+      codec,
+      payload: new Uint8Array(payload),
       checksum,
     };
 
@@ -302,6 +330,12 @@ export class FrameParser {
   /**
    * 重置状态机
    */
+  /** 公开重置方法，清空内部缓冲和状态机 */
+  reset(): void {
+    this.buffer = new Uint8Array(0);
+    this.resetState();
+  }
+
   private resetState(): void {
     this.state = FrameParseState.WAIT_HEADER;
     this.bufferPos = 0;

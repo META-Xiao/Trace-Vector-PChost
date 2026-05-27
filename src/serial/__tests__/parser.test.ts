@@ -7,6 +7,10 @@ import {
   ImageFrame,
   LogFrame,
   ResourceFrame,
+  TelemetryFrame,
+  PixelFormat,
+  Codec,
+  makeFormat,
 } from '../protocol';
 import { FrameParser, FrameParseError } from '../parser';
 
@@ -164,12 +168,12 @@ describe('FrameParser', () => {
   });
 
   describe('Resource Frame (0xEE)', () => {
-    // 默认预设: CPU(u8)+ROM(u16)+RAM(u16)+Speed(i16)+Servo(i16) = 9B
+    // 默认预设: CPU(u8)+RAM(u16)+ROM(u16)+Speed(i16)+Servo(i16) = 9B
     it('should parse resource frame — parser only extracts raw resData', () => {
       const resData = new Uint8Array([
         50,           // CPU = 50% (u8)
-        0x12, 0x34,   // ROM = 0x1234 (u16)
         0x56, 0x78,   // RAM = 0x5678 (u16)
+        0x12, 0x34,   // ROM = 0x1234 (u16)
         0x00, 0x64,   // Speed = 100 (i16)
         0x00, 0xC8,   // Servo = 200 (i16)
       ]);
@@ -198,7 +202,7 @@ describe('FrameParser', () => {
       expect(resourceFrame.length).toBe(length);
       expect(resourceFrame.resData.length).toBe(length);
       expect(resourceFrame.resData[0]).toBe(50);  // CPU
-      expect(resourceFrame.resData[4]).toBe(0x78); // RAM lo byte
+      expect(resourceFrame.resData[4]).toBe(0x34); // ROM lo byte
     });
 
     it('should reject invalid checksum on resource frame', () => {
@@ -219,6 +223,202 @@ describe('FrameParser', () => {
       expect(results).toHaveLength(1);
       expect(results[0]).toBeInstanceOf(FrameParseError);
       expect((results[0] as FrameParseError).code).toBe('RESOURCE_CHECKSUM_ERROR');
+    });
+  });
+
+  describe('Image Frame (0xCC)', () => {
+    const W = 10;
+    const H = 10;
+
+    it('should parse valid grayscale RAW image frame', () => {
+      const payload = new Uint8Array(W * H);
+      for (let i = 0; i < payload.length; i++) payload[i] = i % 256;
+
+      const format = makeFormat(PixelFormat.Gray8, Codec.RAW);
+      const length = 5 + payload.length; // Frame(2)+W(1)+H(1)+Fmt(1)+Payload
+      const frameData = new Uint8Array(2 + length + 1);
+      frameData[0] = (length >> 8) & 0xFF;
+      frameData[1] = length & 0xFF;
+      frameData[2] = 0; frameData[3] = 1;    // frameId = 1
+      frameData[4] = W;                        // width
+      frameData[5] = H;                        // height
+      frameData[6] = format;                   // Format byte
+      frameData.set(payload, 7);
+
+      const dataToCheck = new Uint8Array(1 + 2 + length);
+      dataToCheck[0] = FRAME_TYPE.IMAGE;
+      dataToCheck.set(frameData.slice(0, 2 + length), 1);
+      frameData[2 + length] = calculateChecksum(dataToCheck);
+
+      const frame = new Uint8Array(1 + frameData.length);
+      frame[0] = FRAME_TYPE.IMAGE;
+      frame.set(frameData, 1);
+
+      const results = parser.parse(frame);
+      expect(results).toHaveLength(1);
+      expect(results[0]).not.toBeInstanceOf(FrameParseError);
+
+      const imgFrame = results[0] as ImageFrame;
+      expect(imgFrame.type).toBe('IMAGE');
+      expect(imgFrame.frameId).toBe(1);
+      expect(imgFrame.width).toBe(W);
+      expect(imgFrame.height).toBe(H);
+      expect(imgFrame.pixelFormat).toBe(PixelFormat.Gray8);
+      expect(imgFrame.codec).toBe(Codec.RAW);
+      expect(imgFrame.format).toBe(format);
+      expect(imgFrame.payload.length).toBe(W * H);
+    });
+
+    it('should parse valid RGB565 RAW image frame', () => {
+      const payload = new Uint8Array(W * H * 2);
+      const format = makeFormat(PixelFormat.RGB565, Codec.RAW);
+      const length = 5 + payload.length;
+      const frameData = new Uint8Array(2 + length + 1);
+      frameData[0] = (length >> 8) & 0xFF;
+      frameData[1] = length & 0xFF;
+      frameData[2] = 0; frameData[3] = 0; // frameId
+      frameData[4] = W;
+      frameData[5] = H;
+      frameData[6] = format;
+      frameData.set(payload, 7);
+
+      const dataToCheck = new Uint8Array(1 + 2 + length);
+      dataToCheck[0] = FRAME_TYPE.IMAGE;
+      dataToCheck.set(frameData.slice(0, 2 + length), 1);
+      frameData[2 + length] = calculateChecksum(dataToCheck);
+
+      const frame = new Uint8Array(1 + frameData.length);
+      frame[0] = FRAME_TYPE.IMAGE;
+      frame.set(frameData, 1);
+
+      const results = parser.parse(frame);
+      expect(results).toHaveLength(1);
+      expect(results[0]).not.toBeInstanceOf(FrameParseError);
+
+      const imgFrame = results[0] as ImageFrame;
+      expect(imgFrame.pixelFormat).toBe(PixelFormat.RGB565);
+      expect(imgFrame.codec).toBe(Codec.RAW);
+      expect(imgFrame.payload.length).toBe(W * H * 2);
+    });
+
+    it('should parse image frame with HEATSHRINK codec (no size validation)', () => {
+      const payload = new Uint8Array([0xAA, 0xBB, 0xCC]);
+      const format = makeFormat(PixelFormat.RGB565, Codec.HEATSHRINK);
+      const length = 5 + payload.length;
+      const frameData = new Uint8Array(2 + length + 1);
+      frameData[0] = (length >> 8) & 0xFF;
+      frameData[1] = length & 0xFF;
+      frameData[2] = 0; frameData[3] = 1;
+      frameData[4] = W;
+      frameData[5] = H;
+      frameData[6] = format;
+      frameData.set(payload, 7);
+
+      const dataToCheck = new Uint8Array(1 + 2 + length);
+      dataToCheck[0] = FRAME_TYPE.IMAGE;
+      dataToCheck.set(frameData.slice(0, 2 + length), 1);
+      frameData[2 + length] = calculateChecksum(dataToCheck);
+
+      const frame = new Uint8Array(1 + frameData.length);
+      frame[0] = FRAME_TYPE.IMAGE;
+      frame.set(frameData, 1);
+
+      const results = parser.parse(frame);
+      expect(results).toHaveLength(1);
+      expect(results[0]).not.toBeInstanceOf(FrameParseError);
+
+      const imgFrame = results[0] as ImageFrame;
+      expect(imgFrame.pixelFormat).toBe(PixelFormat.RGB565);
+      expect(imgFrame.codec).toBe(Codec.HEATSHRINK);
+      expect(imgFrame.payload.length).toBe(3);
+    });
+
+    it('should reject image frame with wrong payload size for fixed format', () => {
+      const payload = new Uint8Array(W * H + 5); // should be W*H for Gray8
+      const format = makeFormat(PixelFormat.Gray8, Codec.RAW);
+      const length = 5 + payload.length;
+      const frameData = new Uint8Array(2 + length + 1);
+      frameData[0] = (length >> 8) & 0xFF;
+      frameData[1] = length & 0xFF;
+      frameData[2] = 0; frameData[3] = 0;
+      frameData[4] = W;
+      frameData[5] = H;
+      frameData[6] = format;
+      frameData.set(payload, 7);
+
+      const dataToCheck = new Uint8Array(1 + 2 + length);
+      dataToCheck[0] = FRAME_TYPE.IMAGE;
+      dataToCheck.set(frameData.slice(0, 2 + length), 1);
+      frameData[2 + length] = calculateChecksum(dataToCheck);
+
+      const frame = new Uint8Array(1 + frameData.length);
+      frame[0] = FRAME_TYPE.IMAGE;
+      frame.set(frameData, 1);
+
+      const results = parser.parse(frame);
+      expect(results).toHaveLength(1);
+      expect(results[0]).toBeInstanceOf(FrameParseError);
+      expect((results[0] as FrameParseError).code).toBe('IMAGE_SIZE_MISMATCH');
+    });
+
+    it('should reject image frame with bad checksum', () => {
+      const payload = new Uint8Array(W * H);
+      const format = makeFormat(PixelFormat.Gray8, Codec.RAW);
+      const length = 5 + payload.length;
+      const frameData = new Uint8Array(2 + length + 1);
+      frameData[0] = (length >> 8) & 0xFF;
+      frameData[1] = length & 0xFF;
+      frameData[2] = 0; frameData[3] = 0;
+      frameData[4] = W;
+      frameData[5] = H;
+      frameData[6] = format;
+      frameData.set(payload, 7);
+      frameData[2 + length] = 0xFF; // wrong checksum
+
+      const frame = new Uint8Array(1 + frameData.length);
+      frame[0] = FRAME_TYPE.IMAGE;
+      frame.set(frameData, 1);
+
+      const results = parser.parse(frame);
+      expect(results).toHaveLength(1);
+      expect(results[0]).toBeInstanceOf(FrameParseError);
+      expect((results[0] as FrameParseError).code).toBe('IMAGE_CHECKSUM_ERROR');
+    });
+
+    it('should handle fragmented image frame reception', () => {
+      const payload = new Uint8Array(W * H);
+      for (let i = 0; i < payload.length; i++) payload[i] = 128;
+      const format = makeFormat(PixelFormat.Gray8, Codec.RAW);
+      const length = 5 + payload.length;
+      const frameData = new Uint8Array(2 + length + 1);
+      frameData[0] = (length >> 8) & 0xFF;
+      frameData[1] = length & 0xFF;
+      frameData[2] = 0; frameData[3] = 1;
+      frameData[4] = W;
+      frameData[5] = H;
+      frameData[6] = format;
+      frameData.set(payload, 7);
+
+      const dataToCheck = new Uint8Array(1 + 2 + length);
+      dataToCheck[0] = FRAME_TYPE.IMAGE;
+      dataToCheck.set(frameData.slice(0, 2 + length), 1);
+      frameData[2 + length] = calculateChecksum(dataToCheck);
+
+      const fullFrame = new Uint8Array(1 + frameData.length);
+      fullFrame[0] = FRAME_TYPE.IMAGE;
+      fullFrame.set(frameData, 1);
+
+      // byte-by-byte feed
+      let results: (TelemetryFrame | FrameParseError)[] = [];
+      for (let i = 0; i < fullFrame.length; i++) {
+        results = results.concat(parser.parse(new Uint8Array([fullFrame[i]])));
+      }
+
+      expect(results).toHaveLength(1);
+      const imgFrame = results[0] as ImageFrame;
+      expect(imgFrame.frameId).toBe(1);
+      expect(imgFrame.pixelFormat).toBe(PixelFormat.Gray8);
+      expect(imgFrame.payload.length).toBe(W * H);
     });
   });
 

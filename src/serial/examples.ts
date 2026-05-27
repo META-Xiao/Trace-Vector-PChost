@@ -99,11 +99,11 @@ function handleTelemetryFrame(
  */
 function handleImageFrame(frame: ImageFrame) {
   console.log(`[图传] Frame #${frame.frameId}, length=${frame.length}`);
-  console.log(`  图像大小: ${frame.imageData.length} 字节 (${frame.width}×${frame.height} 灰度)`);
+  console.log(`  格式: PixelFormat=${frame.pixelFormat} Codec=${frame.codec}`);
+  console.log(`  Payload: ${frame.payload.length} 字节 (${frame.width}×${frame.height})`);
   console.log(`  校验和: 0x${frame.checksum.toString(16)}`);
 
-  // 将灰度数据显示到 Canvas
-  renderImageToCanvas(frame.imageData);
+  renderImageToCanvas(frame.payload);
 }
 
 function renderImageToCanvas(imageData: Uint8Array) {
@@ -113,13 +113,12 @@ function renderImageToCanvas(imageData: Uint8Array) {
   const ctx = canvas.getContext('2d')!;
   const imgData = ctx.createImageData(188, 120);
 
-  // 灰度数据转 RGBA
   for (let i = 0; i < imageData.length; i++) {
     const gray = imageData[i];
-    imgData.data[i * 4 + 0] = gray; // R
-    imgData.data[i * 4 + 1] = gray; // G
-    imgData.data[i * 4 + 2] = gray; // B
-    imgData.data[i * 4 + 3] = 255; // A
+    imgData.data[i * 4 + 0] = gray;
+    imgData.data[i * 4 + 1] = gray;
+    imgData.data[i * 4 + 2] = gray;
+    imgData.data[i * 4 + 3] = 255;
   }
 
   ctx.putImageData(imgData, 0, 0);

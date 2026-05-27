@@ -2,7 +2,7 @@
   <div class="log-card">
     <div class="log-title">
       {{ title }}
-      <em :class="connected ? 'live' : 'offline'">{{ connected ? 'LIVE' : 'OFFLINE' }}</em>
+      <em :class="status">{{ status === 'replay' ? 'REPLAY' : status === 'live' ? 'LIVE' : 'OFFLINE' }}</em>
     </div>
     <div class="log-body">
       <div
@@ -15,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ title: string; logs: string[]; connected: boolean }>();
+defineProps<{ title: string; logs: string[]; status: 'offline' | 'live' | 'replay' }>();
 </script>
 
 <style scoped>
@@ -44,8 +44,10 @@ defineProps<{ title: string; logs: string[]; connected: boolean }>();
 }
 .log-title em.live    { background: rgba(32,184,166,.15); color: #20b8a6; }
 .log-title em.offline { background: rgba(239,68,68,.12);  color: #ef4444; }
+.log-title em.replay  { background: rgba(59,130,246,.15); color: #2563eb; }
 [data-theme="dark"] .log-title em.live    { background: rgba(74,222,128,.15); color: #4ade80; }
 [data-theme="dark"] .log-title em.offline { background: rgba(248,113,113,.15); color: #f87171; }
+[data-theme="dark"] .log-title em.replay  { background: rgba(96,165,250,.15); color: #60a5fa; }
 .log-body {
   flex: 1;
   min-height: 0;

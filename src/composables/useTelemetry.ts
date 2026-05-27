@@ -63,7 +63,7 @@ serialManager.on((event) => {
   if (event.type !== 'FRAME') return;
   const f = event.frame;
   if (f.type === 'IMAGE') {
-    trackRxBytes(22566);
+    trackRxBytes(9 + f.payload.length);  // 0xCC(1)+Len(2)+Frame(2)+W(1)+H(1)+Fmt(1)+payload+CS(1)
   } else if (f.type === 'LOG') {
     trackRxBytes(4 + f.length);
   } else if (f.type === 'RESOURCE') {
@@ -82,7 +82,7 @@ serialManager.on((event) => {
 });
 
 imageManager.on((event) => {
-  if (event.type === 'STATS_UPDATED') imageFps.value = Math.round(event.stats.currentFps);
+  if (event.type === 'STATS_UPDATED') imageFps.value = event.stats.currentFps;
 });
 logManager.on((event) => {
   if (event.type !== 'LOG_RECEIVED') return;

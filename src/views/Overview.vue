@@ -1,5 +1,5 @@
 <template>
-  <div class="page" @click="avatarOpen = false; mobileAvatarOpen = false">
+  <div class="page" @click="closePopups">
     <nav class="nav">
       <b class="logo" @click="cliOpen = !cliOpen" title="Toggle CLI (Ctrl+J)"><img src="/img/Simple_logo.svg" class="logo-img" alt="logo" /></b>
       <div class="tabs">
@@ -12,52 +12,18 @@
           {{ tab }}
         </button>
       </div>
-      <div
-        class="avatar"
-        :class="conn.connected ? 'online' : 'offline'"
-        @mouseenter="avatarOpen = true"
-        @mouseleave="avatarOpen = false"
-        @click.stop="avatarOpen = !avatarOpen"
-      >
-        {{ conn.connected ? conn.mcuName.slice(0, 2) + '.' : 'TV' }}
-        <Transition name="popup">
-          <div v-if="avatarOpen" class="avatar-popup connection-popup" @click.stop>
-            <div class="popup-status" :class="conn.connected ? 'online' : 'offline'">
-              {{ conn.connected ? 'Online' : 'Offline' }}
-            </div>
-            <div v-if="conn.connected" class="connected-panel">
-              <div class="popup-row"><span>Device</span><b>{{ conn.mcuName }}</b></div>
-              <div class="popup-row"><span>Link</span><b>{{ conn.portLabel }}</b></div>
-              <div class="popup-row"><span>Uptime</span><b>{{ uptime }}</b></div>
-              <button class="popup-action danger" @click="disconnectActive">Disconnect</button>
-            </div>
-            <div v-else class="connect-panel">
-              <button
-                v-for="channel in serialChannels"
-                :key="channel.id"
-                class="connect-channel"
-                :class="{ active: serialDraft.channel === channel.id }"
-                @click="serialDraft.channel = channel.id"
-              >
-                <Icon :icon="channel.icon" />
-                <span>{{ channel.label }}</span>
-              </button>
-
-              <div v-if="serialDraft.channel === 'usb_cdc'" class="connect-detail">
-                <span>USB Virtual COM</span>
-              </div>
-              <div v-else-if="serialDraft.channel === 'uart'" class="connect-detail">
-                <input v-model.number="serialDraft.baud" class="popup-input" placeholder="115200" type="number" min="1200" max="4000000" />
-              </div>
-              <div v-else class="connect-detail">
-                <input v-model="serialDraft.wifiEndpoint" class="popup-input" placeholder="192.168.4.1:8080" />
-              </div>
-
-              <button class="popup-action" @click="connectActive">Connect</button>
-            </div>
-          </div>
-        </Transition>
-      </div>
+      <AvatarMenu
+        ref="avatarRef"
+        :replay-ctrl="replayCtrl"
+        :record-ctrl="recordCtrl"
+        :replay-state="replayState"
+        :replay-current="replayCurrent"
+        :replay-total="replayTotal"
+        :record-state="recordState"
+        :uptime="uptime"
+        @connect="connectActive"
+        @disconnect="disconnectActive"
+      />
     </nav>
 
     <main v-show="activeTab === 0" class="main">
@@ -102,33 +68,23 @@
             </section>
 
             <aside class="mcu-card">
-              <LogCard title="MCU output" :logs="mcuLogs" :connected="conn.connected" />
+              <LogCard title="MCU output" :logs="mcuLogs" :status="connectionStatus" />
             </aside>
           </section>
 
           <section class="pc-log-card">
-            <LogCard title="Host RX / Boot Log" :logs="hostLogs" :connected="conn.connected" />
+            <LogCard title="Host RX / Boot Log" :logs="hostLogs" :status="connectionStatus" />
           </section>
         </div>
 
-        <section class="vision-pane">
-          <div class="pane-head">
-            <span>Vision stream</span><b>{{ imageFps > 0 ? imageFps.toFixed(1) + ' FPS' : '-- FPS' }}</b>
-          </div>
-          <div class="canvas-wrap">
-            <canvas ref="imageCanvas" width="188" height="120" />
-          </div>
-          <div class="vision-foot">
-            <span>{{ imageSize.w > 0 ? `Source ${imageSize.w}×${imageSize.h}` : 'Source --×--' }}</span><span>--</span>
-          </div>
-        </section>
+        <VisionPane ref="visionPaneRef" :fps="imageFps" :image-size="imageSize" />
       </section>
     </main>
 
     <SettingsView ref="settingsView" v-show="activeTab === 2" />
     <VisionView
       v-show="activeTab === 1"
-      :canvas-ref="imageCanvas"
+      :canvas-ref="visionPaneRef?.canvas"
     />
 
     <!-- 移动端底部导航 -->
@@ -146,84 +102,73 @@
           <span class="tab-label">{{ tab }}</span>
         </button>
       </div>
-      <div
-        class="avatar-m"
-        :class="conn.connected ? 'online' : 'offline'"
-        @click.stop="mobileAvatarOpen = !mobileAvatarOpen"
-      >
-        {{ conn.connected ? conn.mcuName.slice(0, 2) + '.' : 'TV' }}
-      </div>
-
-      <!-- Mobile avatar popup — fixed above bottom-nav -->
-      <Teleport to="body">
-        <Transition name="popup">
-          <div v-if="mobileAvatarOpen" class="avatar-popup-m-fixed connection-popup" @click.stop>
-            <div class="popup-status" :class="conn.connected ? 'online' : 'offline'">
-              {{ conn.connected ? 'Online' : 'Offline' }}
-            </div>
-            <div v-if="conn.connected" class="connected-panel">
-              <div class="popup-row"><span>Device</span><b>{{ conn.mcuName }}</b></div>
-              <div class="popup-row"><span>Link</span><b>{{ conn.portLabel }}</b></div>
-              <div class="popup-row"><span>Uptime</span><b>{{ uptime }}</b></div>
-              <button class="popup-action danger" @click="disconnectActive">Disconnect</button>
-            </div>
-            <div v-else class="connect-panel">
-              <button
-                v-for="channel in serialChannels"
-                :key="channel.id"
-                class="connect-channel"
-                :class="{ active: serialDraft.channel === channel.id }"
-                @click="serialDraft.channel = channel.id"
-              >
-                <Icon :icon="channel.icon" />
-                <span>{{ channel.label }}</span>
-              </button>
-
-              <div v-if="serialDraft.channel === 'usb_cdc'" class="connect-detail">
-                <span>USB Virtual COM</span>
-              </div>
-              <div v-else-if="serialDraft.channel === 'uart'" class="connect-detail">
-                <input v-model.number="serialDraft.baud" class="popup-input" placeholder="115200" type="number" min="1200" max="4000000" />
-              </div>
-              <div v-else class="connect-detail">
-                <input v-model="serialDraft.wifiEndpoint" class="popup-input" placeholder="192.168.4.1:8080" />
-              </div>
-
-              <button class="popup-action" @click="connectActive">Connect</button>
-            </div>
-          </div>
-        </Transition>
-      </Teleport>
+      <AvatarMenu
+        ref="avatarMobileRef"
+        mobile
+        :replay-ctrl="replayCtrl"
+        :record-ctrl="recordCtrl"
+        :replay-state="replayState"
+        :replay-current="replayCurrent"
+        :replay-total="replayTotal"
+        :record-state="recordState"
+        :uptime="uptime"
+        @connect="connectActive"
+        @disconnect="disconnectActive"
+      />
     </nav>
 
-    <!-- CLI Panel -->
-    <Transition name="cli">
-      <div v-if="cliOpen" class="cli-panel" :style="{ height: cliHeight + 'px' }">
-        <div class="cli-resize-bar" @pointerdown="startCliResize" />
-        <div class="cli-header">
-          <span class="cli-title"><Icon icon="lucide:terminal" /> CLI</span>
-          <button class="cli-close" @click="cliOpen = false"><Icon icon="lucide:x" /></button>
-        </div>
-        <div class="cli-body">
-          <span class="cli-placeholder">CLI — Coming Soon</span>
-        </div>
-      </div>
-    </Transition>
+    <CliPanel v-model:open="cliOpen" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import SettingsView from "./SettingsView.vue";
 import VisionView from "./VisionView.vue";
 import LogCard from "../components/LogCard.vue";
+import AvatarMenu from "../components/AvatarMenu.vue";
+import CliPanel from "../components/CliPanel.vue";
+import VisionPane from "../components/VisionPane.vue";
 import SensorCard from "../components/SensorCard.vue";
 import ServoCard from "../components/ServoCard.vue";
 import { useCanvasAnimation } from "../composables/useCanvasAnimation";
 import { useTelemetry } from "../composables/useTelemetry";
 import { conn } from "../stores/connection";
 import { resourceSlots } from "../stores/resourceSlots";
+import { ReplayController } from "../serial/replay";
+import type { ReplayState } from "../serial/replay";
+import { RecordController } from "../serial/record";
+import type { RecordState } from "../serial/record";
+import { serialManager as _sm } from "../composables/useTelemetry";
+
+const replayCtrl = new ReplayController(_sm);
+const replayState = ref<ReplayState>('idle');
+const replayCurrent = ref(0);
+const replayTotal = ref(0);
+
+replayCtrl.setEvents({
+  onStateChange(s) {
+    replayState.value = s;
+  },
+  onProgress(cur, total) {
+    replayCurrent.value = cur;
+    replayTotal.value = total;
+  },
+});
+
+// ── Recording ──
+const recordCtrl = new RecordController(_sm);
+const recordState = ref<RecordState>('idle');
+const recordBytes = ref(0);
+recordCtrl.setEvents({
+  onStateChange(s) {
+    recordState.value = s;
+  },
+  onByteCount(n) {
+    recordBytes.value = n;
+  },
+});
 
 const {
   mcuLogs, imageFps, imageManager, serialManager,
@@ -283,43 +228,21 @@ const activeTab = ref(0);
 const settingsView = ref<InstanceType<typeof SettingsView>>();
 
 const cliOpen = ref(false);
-const cliHeight = ref(parseInt(localStorage.getItem("cliHeight") ?? "260"));
 
-function startCliResize(e: PointerEvent) {
-  e.preventDefault();
-  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  const startY = e.clientY, startH = cliHeight.value;
-  const onMove = (ev: PointerEvent) => {
-    ev.preventDefault();
-    cliHeight.value = Math.max(120, Math.min(window.innerHeight - 80, startH - (ev.clientY - startY)));
-  };
-  const onUp = () => {
-    localStorage.setItem("cliHeight", String(cliHeight.value));
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-  };
-  window.addEventListener("pointermove", onMove, { passive: false });
-  window.addEventListener("pointerup", onUp);
-}
 const onKey = (e: KeyboardEvent) => {
   if (e.ctrlKey && e.key === "j") { e.preventDefault(); cliOpen.value = !cliOpen.value; }
 };
 
-const avatarOpen = ref(false);
-const mobileAvatarOpen = ref(false);
+const isReplayActive = computed(() => replayState.value !== 'idle' && replayState.value !== 'loading');
+
+const connectionStatus = computed<'offline' | 'live' | 'replay'>(() => {
+  if (isReplayActive.value) return 'replay';
+  if (conn.connected) return 'live';
+  return 'offline';
+});
+
 const now = ref(Date.now());
 let nowTimer: ReturnType<typeof setInterval> | null = null;
-type SerialChannelId = "usb_cdc" | "uart" | "wifi";
-const serialChannels: { id: SerialChannelId; label: string; icon: string }[] = [
-  { id: "usb_cdc", label: "USB-CDC", icon: "lucide:usb" },
-  { id: "uart", label: "UART", icon: "lucide:cable" },
-  { id: "wifi", label: "WIFI", icon: "lucide:wifi" },
-];
-const serialDraft = reactive({
-  channel: "usb_cdc" as SerialChannelId,
-  baud: 115200,
-  wifiEndpoint: "192.168.4.1:8080",
-});
 const uptime = computed(() => {
   if (!conn.connectedAt) return "";
   const s = Math.floor((now.value - conn.connectedAt) / 1000);
@@ -327,22 +250,28 @@ const uptime = computed(() => {
   return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
 });
 
-async function connectActive() {
+const avatarRef = ref<InstanceType<typeof AvatarMenu>>();
+const avatarMobileRef = ref<InstanceType<typeof AvatarMenu>>();
+
+function closePopups() {
+  avatarRef.value?.closePopups();
+  avatarMobileRef.value?.closePopups();
+}
+
+async function connectActive(channel: string, baud: number, wifiEndpoint: string) {
   try {
-    if (serialDraft.channel === "wifi") {
+    if (channel === "wifi") {
       conn.connected = true;
       conn.connectedAt = Date.now();
-      conn.mcuName = serialDraft.wifiEndpoint;
-      conn.portLabel = `WIFI ${serialDraft.wifiEndpoint}`;
+      conn.mcuName = wifiEndpoint;
+      conn.portLabel = `WIFI ${wifiEndpoint}`;
     } else {
       await serialManager.selectPort();
-      await serialManager.connect(serialDraft.baud);
-      conn.portLabel = serialDraft.channel === "usb_cdc"
-        ? `USB-CDC ${serialDraft.baud}`
-        : `UART ${serialDraft.baud}`;
+      await serialManager.connect(baud);
+      conn.portLabel = channel === "usb_cdc"
+        ? `USB-CDC ${baud}`
+        : `UART ${baud}`;
     }
-    avatarOpen.value = false;
-    mobileAvatarOpen.value = false;
   } catch (error) {
     console.error("Connect failed:", error);
   }
@@ -376,6 +305,7 @@ const onBottomTab = (i: number) => {
   }
 };
 
+const visionPaneRef = ref<InstanceType<typeof VisionPane>>();
 const imageCanvas = ref<HTMLCanvasElement>();
 const { stop: stopAnim } = useCanvasAnimation(imageCanvas);
 const imageSize = ref({ w: 0, h: 0 });
@@ -405,9 +335,11 @@ const hostLogs = ref([
 onMounted(() => {
   window.addEventListener("keydown", onKey);
   nowTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+  imageCanvas.value = visionPaneRef.value?.canvas;
   drawNoSignal();
   unsubImage = imageManager.on((event) => {
     if (event.type !== 'IMAGE_RECEIVED') return;
+    if (visionPaneRef.value?.isPaused) return;
     stopAnim();
     const c = imageCanvas.value;
     const ctx = c?.getContext('2d');
@@ -483,24 +415,6 @@ onUnmounted(() => {
   background: var(--nav-tab-active);
   box-shadow: 0 10px 28px rgba(142, 155, 70, 0.18);
 }
-.avatar {
-  margin-left: auto;
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--nav-tab-active);
-  font-weight: 900;
-  box-shadow: 0 12px 34px rgba(33, 58, 75, 0.12);
-  position: relative;
-  cursor: pointer;
-  transition: box-shadow 200ms;
-}
-.avatar.online  { box-shadow: 0 0 0 2.5px #22c55e, 0 12px 34px rgba(33,58,75,.12); }
-.avatar.offline { box-shadow: 0 0 0 2.5px #ef4444, 0 12px 34px rgba(33,58,75,.12); }
-[data-theme="dark"] .avatar.online  { box-shadow: 0 0 0 2.5px #4ade80, 0 12px 34px rgba(0,0,0,.25); }
-[data-theme="dark"] .avatar.offline { box-shadow: 0 0 0 2.5px #f87171, 0 12px 34px rgba(0,0,0,.25); }
 
 /* ── 底部导航（移动端） ── */
 .bottom-nav {
@@ -561,179 +475,6 @@ onUnmounted(() => {
 .tab-label {
   font-size: 10px;
 }
-.avatar-m {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--nav-tab-active);
-  font-weight: 900;
-  font-size: 12px;
-  flex-shrink: 0;
-  position: relative;
-  cursor: pointer;
-}
-.avatar-m.online  { box-shadow: 0 0 0 2.5px #22c55e; }
-.avatar-m.offline { box-shadow: 0 0 0 2.5px #ef4444; }
-[data-theme="dark"] .avatar-m.online  { box-shadow: 0 0 0 2.5px #4ade80; }
-[data-theme="dark"] .avatar-m.offline { box-shadow: 0 0 0 2.5px #f87171; }
-
-.avatar-popup {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  min-width: 180px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 14px;
-  box-shadow: var(--card-shadow);
-  backdrop-filter: blur(20px);
-  padding: 12px 14px;
-  z-index: 300;
-  font-size: 13px;
-  color: var(--text);
-  white-space: nowrap;
-}
-.avatar-popup-m {
-  right: 0;
-  bottom: calc(100% + 10px);
-  top: auto;
-}
-.avatar-popup-m-fixed {
-  position: fixed;
-  bottom: 74px;
-  right: 16px;
-  min-width: 180px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 14px;
-  box-shadow: var(--card-shadow);
-  backdrop-filter: blur(20px);
-  padding: 12px 14px;
-  z-index: 500;
-  font-size: 13px;
-  color: var(--text);
-  white-space: nowrap;
-}
-.popup-status {
-  font-weight: 800;
-  font-size: 12px;
-  margin-bottom: 8px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  display: inline-block;
-}
-.popup-status.online  { background: rgba(34,197,94,.15); color: #16a34a; }
-.popup-status.offline { background: rgba(239,68,68,.15);  color: #dc2626; }
-[data-theme="dark"] .popup-status.online  { background: rgba(74,222,128,.15); color: #4ade80; }
-[data-theme="dark"] .popup-status.offline { background: rgba(248,113,113,.15); color: #f87171; }
-.popup-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 3px 0;
-  color: var(--text-muted);
-}
-.popup-row b { color: var(--text); font-weight: 600; }
-.popup-hint { color: var(--text-muted); font-size: 12px; }
-.connection-popup {
-  min-width: 280px;
-  white-space: normal;
-}
-.connect-panel,
-.connected-panel {
-  display: grid;
-  gap: 10px;
-}
-.connect-panel {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-.connect-channel {
-  min-height: 58px;
-  display: grid;
-  place-items: center;
-  gap: 4px;
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 900;
-  cursor: pointer;
-}
-.connect-channel svg {
-  font-size: 18px;
-}
-.connect-channel.active {
-  border-color: rgba(32, 184, 166, 0.55);
-  color: #0e8a7e;
-  background: rgba(32, 184, 166, 0.1);
-}
-.connect-detail {
-  grid-column: 1 / -1;
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-.baud-strip {
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.baud-strip button {
-  border: 0;
-  border-radius: 999px;
-  padding: 5px 8px;
-  background: var(--card-bg);
-  color: var(--text-muted);
-  font-family: "JetBrains Mono", Consolas, monospace;
-  font-size: 11px;
-  font-weight: 900;
-  cursor: pointer;
-}
-.baud-strip button.active {
-  background: #20b8a6;
-  color: #fff;
-}
-.popup-input {
-  width: 100%;
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: var(--card-bg);
-  color: var(--text);
-  font-family: "JetBrains Mono", Consolas, monospace;
-  font-size: 12px;
-  font-weight: 800;
-}
-.popup-input:focus {
-  outline: none;
-  border-color: #20b8a6;
-}
-.popup-action {
-  grid-column: 1 / -1;
-  border: 0;
-  border-radius: 12px;
-  min-height: 36px;
-  background: var(--text);
-  color: var(--card-bg);
-  font-weight: 900;
-  cursor: pointer;
-}
-.popup-action.danger {
-  margin-top: 4px;
-  background: #ef4444;
-  color: #fff;
-}
-.popup-enter-active, .popup-leave-active { transition: opacity 150ms, transform 150ms; }
-.popup-enter-from, .popup-leave-to { opacity: 0; transform: translateY(-4px) scale(0.97); }
 .main {
   padding: 0 28px 72px;
 }
@@ -760,8 +501,7 @@ h1 {
   gap: 24px;
 }
 .telemetry-card,
-.pc-log-card,
-.vision-pane {
+.pc-log-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow);
@@ -871,52 +611,6 @@ h1 {
   min-height: 0;
   max-height: 524px;
 }
-.vision-pane {
-  position: relative;
-  min-width: 0;
-  height: 720px;
-  border-radius: 26px;
-  overflow: hidden;
-}
-.pane-head,
-.vision-foot {
-  position: absolute;
-  z-index: 2;
-  left: 16px;
-  right: 16px;
-  display: flex;
-  justify-content: space-between;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 900;
-}
-.pane-head {
-  top: 14px;
-}
-.vision-foot {
-  bottom: 12px;
-}
-.canvas-wrap {
-  position: absolute;
-  inset: 58px 42px 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background:
-    linear-gradient(rgba(36, 36, 36, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(36, 36, 36, 0.04) 1px, transparent 1px);
-  background-size: 24px 24px;
-  border-radius: 32px;
-  overflow: hidden;
-}
-.canvas-wrap canvas {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  image-rendering: pixelated;
-  border-radius: 20px;
-  filter: saturate(0.95);
-}
 .pc-log-card {
   border-radius: 24px;
   padding: 18px;
@@ -983,9 +677,6 @@ h1 {
   .mcu-card {
     height: auto;
   }
-  .vision-pane {
-    height: 420px;
-  }
   .pc-log-card {
     width: auto;
   }
@@ -1009,9 +700,6 @@ h1 {
   }
   .telemetry-card {
     padding: 12px;
-  }
-  .vision-pane {
-    height: 320px;
   }
   .pc-log-card {
     width: auto;
@@ -1092,7 +780,6 @@ h1 {
     max-height: 120px;
     margin-top: 0;
   }
-  .vision-pane,
   .mcu-card {
     height: 280px;
   }
@@ -1101,83 +788,8 @@ h1 {
   }
 }
 
-/* ── CLI Panel ── */
 .logo {
   cursor: pointer;
   user-select: none;
-}
-.cli-panel {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 260px;
-  z-index: 400;
-  display: flex;
-  flex-direction: column;
-  background: var(--card-bg);
-  border-top: 1px solid var(--card-border);
-  backdrop-filter: blur(24px);
-  box-shadow: 0 -8px 40px rgba(0,0,0,.15);
-}
-.cli-resize-bar {
-  height: 5px;
-  cursor: ns-resize;
-  flex-shrink: 0;
-  background: transparent;
-  transition: background 150ms;
-  touch-action: none;
-  position: relative;
-}
-.cli-resize-bar::before {
-  content: '';
-  position: absolute;
-  inset: -10px 0;
-}
-.cli-resize-bar:hover { background: var(--surface); }
-.cli-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  height: 36px;
-  border-bottom: 1px solid var(--card-border);
-  flex-shrink: 0;
-}
-.cli-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-  letter-spacing: 0.05em;
-}
-.cli-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  display: grid;
-  place-items: center;
-  padding: 4px;
-  border-radius: 6px;
-  transition: background 150ms, color 150ms;
-}
-.cli-close:hover { background: var(--surface); color: var(--text); }
-.cli-body {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  color: var(--text-dim);
-  font-family: "JetBrains Mono", "Fira Code", monospace;
-}
-.cli-enter-active, .cli-leave-active { transition: transform 220ms cubic-bezier(0.4,0,0.2,1); }
-.cli-enter-from, .cli-leave-to { transform: translateY(100%); }
-
-@media (max-width: 640px) {
-  .cli-panel { height: 220px; bottom: 64px; }
 }
 </style>
