@@ -73,7 +73,7 @@
           </section>
 
           <section class="binout-card">
-            <BinOutput ref="binOutputRef" :status="connectionStatus" />
+            <BinOutputSimple ref="binOutputRef" :status="connectionStatus" />
           </section>
         </div>
 
@@ -130,7 +130,7 @@ import LogCard from "../components/LogCard.vue";
 import AvatarMenu from "../components/AvatarMenu.vue";
 import CliPanel from "../components/CliPanel.vue";
 import VisionPane from "../components/VisionPane.vue";
-import BinOutput from "../components/BinOutput.vue";
+import BinOutputSimple from "../components/BinOutputSimple.vue";
 import SensorCard from "../components/SensorCard.vue";
 import ServoCard from "../components/ServoCard.vue";
 import { useCanvasAnimation } from "../composables/useCanvasAnimation";
@@ -331,8 +331,9 @@ console.log('[HOST] protocol parser initialized');
 console.log('[HOST] resource monitor mounted');
 console.log('[HOST] image stream waiting for frame');
 
-const binOutputRef = ref<InstanceType<typeof BinOutput>>();
+const binOutputRef = ref<InstanceType<typeof BinOutputSimple>>();
 let unsubRaw: (() => void) | null = null;
+let unsubReplayFrames: (() => void) | null = null;
 
 onMounted(() => {
   window.addEventListener("keydown", onKey);
@@ -355,6 +356,12 @@ onMounted(() => {
   unsubRaw = serialManager.onRawData((data) => {
     binOutputRef.value?.pushRawData(data);
   });
+  // Replay mode: feed parsed frames to BinOutput (live mode uses raw path above)
+  unsubReplayFrames = serialManager.on((event) => {
+    if (event.type === 'FRAME') {
+      binOutputRef.value?.pushFrame(event.frame);
+    }
+  });
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
@@ -362,6 +369,7 @@ onUnmounted(() => {
   stopAnim();
   unsubImage?.();
   unsubRaw?.();
+  unsubReplayFrames?.();
 });
 </script>
 
