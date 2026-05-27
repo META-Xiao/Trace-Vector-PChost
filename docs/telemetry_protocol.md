@@ -49,7 +49,7 @@
     |----|------|------|
     | `0` | RAW | 按 PixelFormat 格式输出的完整原始图像，不做任何压缩 |
     | `1` | RLE | 游程编码，连续相同数据压缩为 `<val, len>` 对，适合二值化图和灰度图 |
-    | `2` | HEATSHRINK | 面向MCU的小型LZ压缩算法，支持Streaming，RAM占用低 |
+    | `2` | HEATSHRINK | 面向MCU的小型LZ压缩算法，支持Streaming，RAM占用低（不代表没有占用，至少8KB的占用是存在的，而且对CPU要求也有不小要求） |
     | `3` | Tile | 变化检测：分块对比I/P帧，仅传输变化区块（无熵编码，调试用） |
     | `4` | Patch | 变化检测：最小矩形覆盖变化区域，传矩形内RAW数据（无熵编码，调试用） |
     | `5` | Tile+HEATSHRINK | Tile 变化检测后 HEATSHRINK 压缩变化区块数据（**生产主力**） |
