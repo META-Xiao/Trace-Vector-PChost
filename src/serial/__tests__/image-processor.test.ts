@@ -201,9 +201,9 @@ describe('ImageFrameProcessor', () => {
       length: 5 + TOTAL_PIXELS,
       width: WIDTH,
       height: HEIGHT,
-      format: makeFormat(PixelFormat.Gray8, Codec.HEATSHRINK),
+      format: makeFormat(PixelFormat.Gray8, Codec.RLE),
       pixelFormat: PixelFormat.Gray8,
-      codec: Codec.HEATSHRINK,
+      codec: Codec.RLE,
       payload,
       checksum: 0,
     };

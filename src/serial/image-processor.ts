@@ -84,13 +84,16 @@ export class ImageFrameProcessor {
 
   /** 解码非 RAW codec 的 Payload */
   private decodePayload(
-    _payload: Uint8Array,
+    payload: Uint8Array,
     codec: Codec,
-    _pixelFormat: PixelFormat,
-    _width: number,
-    _height: number,
+    pixelFormat: PixelFormat,
+    width: number,
+    height: number,
   ): Uint8Array {
-    // TODO: 实现 HEATSHRINK / RLE / Tile / Patch 解码
+    if (codec === Codec.HEATSHRINK) {
+      const expectedSize = this.expectedRawSize(pixelFormat, width, height);
+      return heatshrinkDecode(payload, expectedSize, 8, 4);
+    }
     throw new Error(`Codec ${Codec[codec]} (${codec}) not yet implemented`);
   }
 
@@ -324,4 +327,65 @@ export class ImageDataStore {
     this.droppedFrames = 0;
     this.frameTimeHistory = [];
   }
+}
+
+// ── HEATSHRINK decoder (self-contained, matches inline MCU encoder) ──
+
+class BitReader {
+  private data: Uint8Array;
+  private bytePos = 0;
+  private bitPos = 0;  // 0=MSB, 0-7
+
+  constructor(data: Uint8Array) { this.data = data; }
+
+  readBit(): number {
+    if (this.bytePos >= this.data.length) return 0;
+    const bit = (this.data[this.bytePos] >> (7 - this.bitPos)) & 1;
+    if (++this.bitPos === 8) { this.bitPos = 0; this.bytePos++; }
+    return bit;
+  }
+
+  readBits(n: number): number {
+    let val = 0;
+    for (let i = 0; i < n; i++) val = (val << 1) | this.readBit();
+    return val;
+  }
+
+  readVarint(sz2: number): number {
+    let val = 0;
+    let cont: number;
+    do {
+      cont = this.readBit();
+      val = (val << sz2) | this.readBits(sz2);
+    } while (cont === 1);
+    return val;
+  }
+}
+
+const HSE_MIN_MATCH = 2;
+
+function heatshrinkDecode(
+  payload: Uint8Array,
+  expectedSize: number,
+  windowSz2: number,
+  lookaheadSz2: number,
+): Uint8Array {
+  const reader = new BitReader(payload);
+  const output = new Uint8Array(expectedSize);
+  let outPos = 0;
+
+  while (outPos < expectedSize) {
+    const tag = reader.readBit();
+    if (tag === 0) {
+      output[outPos++] = reader.readBits(8);
+    } else {
+      const len = reader.readVarint(lookaheadSz2) + HSE_MIN_MATCH;
+      const offset = reader.readVarint(windowSz2);
+      for (let i = 0; i < len; i++) {
+        output[outPos] = output[outPos - offset];
+        outPos++;
+      }
+    }
+  }
+  return output;
 }
