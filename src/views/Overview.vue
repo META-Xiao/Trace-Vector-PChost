@@ -82,10 +82,7 @@
     </main>
 
     <SettingsView ref="settingsView" v-show="activeTab === 2" />
-    <VisionView
-      v-show="activeTab === 1"
-      :canvas-ref="visionPaneRef?.canvas"
-    />
+    <HexView v-show="activeTab === 1" />
 
     <!-- 移动端底部导航 -->
     <nav class="bottom-nav">
@@ -125,7 +122,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import SettingsView from "./SettingsView.vue";
-import VisionView from "./VisionView.vue";
+import HexView from "./HexView.vue";
 import LogCard from "../components/LogCard.vue";
 import AvatarMenu from "../components/AvatarMenu.vue";
 import CliPanel from "../components/CliPanel.vue";
@@ -223,8 +220,8 @@ function openTzPicker() {
   }
 }
 
-const tabs = ["Overview", "Vision", "Settings"];
-const tabIcons = ["lucide:layout-dashboard", "lucide:video", "lucide:settings"];
+const tabs = ["Overview", "Hex", "Settings"];
+const tabIcons = ["lucide:layout-dashboard", "lucide:file-code", "lucide:settings"];
 const activeTab = ref(0);
 const settingsView = ref<InstanceType<typeof SettingsView>>();
 
