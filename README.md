@@ -4,9 +4,11 @@
 
 <!-- ![showoverview](docs\img\showoverview.gif) -->
 
-![showreplay](docs\img\showreplay.gif)
+<!-- ![showreplay](docs\img\showreplay.gif) -->
 
 <!-- ![showhexview](docs\img\showhexview.gif) -->
+
+![showoverview](docs/img/showoverview.jpg)
 
 ## 功能特性
 
