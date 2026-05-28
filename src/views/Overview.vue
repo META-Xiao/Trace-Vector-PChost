@@ -27,7 +27,7 @@
     </nav>
 
     <main v-show="activeTab === 0" class="main">
-      <p class="hello">Good morning, Trace Vector!</p>
+      <p class="hello">{{ greeting }}, Trace Vector!</p>
       <h1>Theia Monitor</h1>
 
       <section class="content-layout">
@@ -246,6 +246,13 @@ const uptime = computed(() => {
   const s = Math.floor((now.value - conn.connectedAt) / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
+});
+
+const greeting = computed(() => {
+  const h = new Date(now.value).getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
 });
 
 const avatarRef = ref<InstanceType<typeof AvatarMenu>>();
