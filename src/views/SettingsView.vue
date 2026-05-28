@@ -246,7 +246,7 @@
           <h2>About</h2>
           <div class="about-grid">
             <div class="about-row">
-              <span>Application</span><b>Trace Vector PC Host</b>
+              <span>Application</span><b>Theia Monitor</b>
             </div>
             <div class="about-row"><span>Version</span><b>v0.1.0</b></div>
             <div class="about-row"><span>Build</span><b>2026-05-20</b></div>

@@ -1,12 +1,11 @@
 /**
  * 二进制文件回放控制器
  *
- * 读取 MCU 输出的 TVBIN2 .bin 文件，通过 FrameParser 解析后注入 serialManager 事件管道，
- * 复用现有的图像/日志/资源显示管线。支持播放/暂停/逐帧进退/重播。
+ * 读取 Theia Monitor .bin 录制文件，通过 FrameParser 解析后注入 serialManager 事件管道。
  *
- * TVBIN2 格式:
- *   Magic:   "TVBIN2"  (6 bytes)
- *   Baud:    uint16 LE (2 bytes, baud rate / 100)
+ * 格式:
+ *   Owner:   "Theia Monitor" (13 bytes, UTF-8)
+ *   Magic:   "THEIAv1" (7 bytes)
  *   [Chunk]:
  *     delta_ms: uint16 LE (2 bytes) — 距上一个 chunk 的毫秒数
  *     data_len: uint16 LE (2 bytes)
@@ -23,7 +22,8 @@ export interface ReplayEvents {
   onProgress?: (current: number, total: number) => void;
 }
 
-const MAGIC_V2 = new Uint8Array([0x54, 0x56, 0x42, 0x49, 0x4E, 0x32]); // "TVBIN2"
+const MAGIC = new Uint8Array([0x54, 0x48, 0x45, 0x49, 0x41, 0x76, 0x31]); // "THEIAv1"
+const HEADER_LEN = 13 + MAGIC.length; // owner + magic
 
 export class ReplayController {
   private parser = new FrameParser();
@@ -63,7 +63,7 @@ export class ReplayController {
     const data = new Uint8Array(buf);
     this._fileName = file.name;
 
-    this._parseV2(data);
+    this._parse(data);
 
     this._currentIdx = 0;
     this._state = 'ready';
@@ -147,18 +147,14 @@ export class ReplayController {
    * 内部 — 加载
    * ================================================================ */
 
-  /** 解析 TVBIN2 文件，计算每帧的 delta 时间 */
-  private _parseV2(data: Uint8Array): void {
+  /** 解析 Theia Monitor 录制文件，计算每帧的 delta 时间 */
+  private _parse(data: Uint8Array): void {
     this.frames = [];
     this._deltas = [];
     this.parser.reset();
 
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-    let off = MAGIC_V2.length;
-
-    const baud = view.getUint16(off, true) * 100;
-    off += 2;
-    console.log(`[replay] 录制波特率: ${baud}`);
+    let off = HEADER_LEN;
 
     let absTime = 0;       // 当前 chunk 的绝对时间戳（ms）
     let lastEmitTime = 0;  // 上一个帧的绝对时间戳

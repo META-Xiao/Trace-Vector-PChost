@@ -1,7 +1,7 @@
 {
-  "name": "trace-vector-pchost",
+  "name": "theia-monitor",
   "version": "0.1.0",
-  "description": "PC Host for Trace Vector Smart Car - Real-time telemetry visualization",
+  "description": "Theia Monitor - Real-time MCU telemetry visualization with hex analysis",
   "type": "module",
   "scripts": {
     "dev": "vite",

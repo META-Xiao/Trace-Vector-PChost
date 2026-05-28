@@ -117,7 +117,8 @@ import { ImageFrameProcessor } from '../serial/image-processor';
 const BYTES_PER_ROW = 16;
 const ROW_HEIGHT = 19.2;
 const ROW_BUFFER = 10;
-const MAGIC = new Uint8Array([0x54, 0x56, 0x42, 0x49, 0x4E, 0x32]); // "TVBIN2"
+const MAGIC = new Uint8Array([0x54, 0x48, 0x45, 0x49, 0x41, 0x76, 0x31]); // "THEIAv1"
+const HEADER_LEN = 13 + MAGIC.length; // owner + magic
 
 const SEC_HEADER = 1, SEC_DATA = 2, SEC_CHECKSUM = 3;
 const FT_IMAGE = 1, FT_LOG = 2, FT_RESOURCE = 3;
@@ -571,12 +572,12 @@ function parseAndDisplay(buf: Uint8Array) {
   let raw: Uint8Array;
   const chunks: ChunkMeta[] = [];
 
-  // ── TVBIN2 check ──
-  if (buf.length >= 8 && MAGIC.every((m, i) => buf[i] === m)) {
+  // ── Theia Monitor format check ──
+  if (buf.length >= HEADER_LEN && MAGIC.every((m, i) => buf[13 + i] === m)) {
     const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 
     // Scan chunks: compute total raw size
-    let total = 0, off = 8;
+    let total = 0, off = HEADER_LEN;
     const deltas: number[] = [], sizes: number[] = [];
     while (off + 4 <= buf.length) {
       const d = view.getUint16(off, true); off += 2;
@@ -589,7 +590,7 @@ function parseAndDisplay(buf: Uint8Array) {
 
     // Concatenate chunk data
     raw = new Uint8Array(total);
-    off = 8; let wp = 0;
+    off = HEADER_LEN; let wp = 0;
     for (let ci = 0; ci < sizes.length; ci++) {
       off += 4; // skip delta(2) + len(2)
       chunks.push({ byteStart: wp, deltaMs: deltas[ci] });

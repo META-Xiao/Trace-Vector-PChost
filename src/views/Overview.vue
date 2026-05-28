@@ -28,7 +28,7 @@
 
     <main v-show="activeTab === 0" class="main">
       <p class="hello">Good morning, Trace Vector!</p>
-      <h1>Trace Vector Host Dashboard</h1>
+      <h1>Theia Monitor</h1>
 
       <section class="content-layout">
         <div class="left-column">
@@ -322,7 +322,7 @@ function drawNoSignal() {
   ctx.fillText('No Signal', c.width / 2, c.height / 2);
 }
 
-console.log('[HOST] Trace Vector PC Host started');
+console.log('[HOST] Theia Monitor started');
 console.log('[HOST] serial manager ready');
 console.log('[HOST] protocol parser initialized');
 console.log('[HOST] resource monitor mounted');
