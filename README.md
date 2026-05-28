@@ -54,9 +54,10 @@ src/
 
 ```bash
 npm install
-npm run dev    # 开发服务器（含 frontend mock，无需硬件）
-npm run test   # 运行测试
-npm run build  # 构建
+npm run dev     # 开发服务器（含 frontend mock，无需硬件）
+npm run test    # 运行测试，仅测试后端脚本
+npm run mcutest # 运行 MCU 测试
+npm run build   # 构建
 ```
 
 ## 开发进度
@@ -72,6 +73,7 @@ npm run build  # 构建
 - [x] CLI 命令发送面板
 - [x] Settings 功能实际生效（Channels 开关、Display 设置）
 - [x] 录制和回放功能（bin 文件直接读写）
+- [ ] WIFI 传输功能
 - [ ] CLI 命令发送功能
 - [ ] CLI 在MCU上接收指令并执行相应任务的方法文档
 
