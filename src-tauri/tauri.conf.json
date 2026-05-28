@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "trace-vector-pchost",
+  "productName": "theia-monitor",
   "version": "0.1.0",
-  "identifier": "com.tracevector.pchost",
+  "identifier": "com.theia.monitor",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Trace Vector PC Host",
+        "title": "Theia Monitor",
         "width": 1280,
         "height": 800,
         "resizable": true,

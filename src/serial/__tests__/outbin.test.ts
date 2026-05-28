@@ -68,7 +68,7 @@ function analyzeOutBin(): FrameStats {
 
 // ── V2 格式工具 ──
 
-const MAGIC_V2 = new Uint8Array([0x54, 0x56, 0x42, 0x49, 0x4E, 0x32]); // "TVBIN2"
+const MAGIC = new Uint8Array([0x54, 0x48, 0x45, 0x49, 0x41, 0x76, 0x31]); // "THEIAv1"
 
 /** 构造一个 V2 chunk（delta + len + data） */
 function makeV2Chunk(deltaMs: number, data: Uint8Array): Uint8Array {
@@ -81,15 +81,14 @@ function makeV2Chunk(deltaMs: number, data: Uint8Array): Uint8Array {
 }
 
 /** 构造完整的 V2 .bin 文件 */
-function makeV2Bin(baud: number, chunks: { deltaMs: number; data: Uint8Array }[]): Uint8Array {
-  const headerBaud = new Uint8Array(2);
-  new DataView(headerBaud.buffer).setUint16(0, Math.round(baud / 100), true);
+function makeBin(_baud: number, chunks: { deltaMs: number; data: Uint8Array }[]): Uint8Array {
+  const owner = new TextEncoder().encode('Theia Monitor');
 
-  const totalLen = MAGIC_V2.length + 2 + chunks.reduce((sum, c) => sum + 4 + c.data.length, 0);
+  const totalLen = owner.length + MAGIC.length + chunks.reduce((sum, c) => sum + 4 + c.data.length, 0);
   const buf = new Uint8Array(totalLen);
   let off = 0;
-  buf.set(MAGIC_V2, off); off += MAGIC_V2.length;
-  buf.set(headerBaud, off); off += 2;
+  buf.set(owner, off); off += owner.length;
+  buf.set(MAGIC, off); off += MAGIC.length;
   for (const c of chunks) {
     const ch = makeV2Chunk(c.deltaMs, c.data);
     buf.set(ch, off); off += ch.length;
@@ -188,7 +187,7 @@ describe('out.bin → FrameParser 真实解析', () => {
       { deltaMs: 25, data: makeLogFrameData('[TRACK] pos=120,80') },
     ];
 
-    const bin = makeV2Bin(115200, chunks);
+    const bin = makeBin(115200, chunks);
 
     // 验证 header
     expect(bin[0]).toBe(0x54); // T
@@ -254,7 +253,7 @@ describe('out.bin → FrameParser 真实解析', () => {
       { deltaMs: 15, data: chunk2 },
     ];
 
-    const bin = makeV2Bin(115200, chunks);
+    const bin = makeBin(115200, chunks);
 
     // 解析
     const parser = new FrameParser();
@@ -289,7 +288,7 @@ describe('out.bin → FrameParser 真实解析', () => {
     combined.set(f2, f1.length);
     combined.set(f3, f1.length + f2.length);
 
-    const bin = makeV2Bin(115200, [
+    const bin = makeBin(115200, [
       { deltaMs: 0, data: combined },
     ]);
 

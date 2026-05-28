@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body { margin: 0; font-family: monospace; background: #0f172a; color: #e2e8f0; }
+#app { padding: 20px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; }
+.hex-grid-wrap {
+  flex: 1; min-height: 0; overflow: auto; border-radius: 12px;
+  background: #1e293b; position: relative; border: 1px solid #334155;
+}
+.hex-row { white-space: nowrap; height: 19.2px; font-size: 12px; line-height: 1.6; }
+.ho { color: #6b7280; margin-right: 16px; user-select: none; }
+.hb { display: inline-block; width: 2ch; text-align: center; margin: 0 1px; border-radius: 2px; cursor: default; }
+.hb:hover { outline: 2px solid #fff; outline-offset: -1px; }
+.hex-tooltip {
+  position: absolute; background: rgba(15,23,42,.94); border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px; padding: 8px 12px; color: #e2e8f0;
+  font-size: 11px; line-height: 1.5; white-space: pre; pointer-events: none; z-index: 10;
+  backdrop-filter: blur(12px); box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <h3>Tooltip + Virtual Scroll Test</h3>
+  <p style="font-size:13px;color:#94a3b8;">Scroll down, then hover over any byte. Tooltip should follow the mouse.</p>
+  <div id="grid" class="hex-grid-wrap"></div>
+</div>
+
+<script>
+const BYTES_PER_ROW = 16;
+const ROW_HEIGHT = 19.2;
+const ROW_BUFFER = 10;
+const TOTAL_BYTES = 50000;
+
+// Build fake data
+const rawData = new Uint8Array(TOTAL_BYTES);
+for (let i = 0; i < TOTAL_BYTES; i++) rawData[i] = i & 0xFF;
+
+const totalRows = Math.ceil(TOTAL_BYTES / BYTES_PER_ROW);
+
+const grid = document.getElementById('grid');
+const spacer = document.createElement('div');
+spacer.className = 'hex-spacer';
+spacer.style.height = `${totalRows * ROW_HEIGHT}px`;
+
+const inner = document.createElement('div');
+spacer.appendChild(inner);
+
+const tooltip = document.createElement('div');
+tooltip.className = 'hex-tooltip';
+tooltip.style.display = 'none';
+grid.appendChild(spacer);
+grid.appendChild(tooltip);
+
+let viewportH = grid.clientHeight;
+new ResizeObserver(() => { viewportH = grid.clientHeight; updateVisible(grid.scrollTop); }).observe(grid);
+
+function renderRow(rowIdx) {
+  const base = rowIdx * BYTES_PER_ROW;
+  let h = `<span class="ho">${base.toString(16).toUpperCase().padStart(8, '0')}</span>`;
+  const end = Math.min(base + BYTES_PER_ROW, TOTAL_BYTES);
+  for (let i = base; i < end; i++) {
+    h += `<span class="hb" data-o="${i}">${rawData[i].toString(16).toUpperCase().padStart(2, '0')}</span>`;
+  }
+  return h;
+}
+
+function updateVisible(scrollTop) {
+  const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - ROW_BUFFER);
+  const last = Math.min(totalRows, Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + ROW_BUFFER);
+
+  // Clear and rebuild
+  inner.innerHTML = '';
+  inner.style.transform = `translateY(${first * ROW_HEIGHT}px)`;
+
+  for (let i = first; i < last; i++) {
+    const row = document.createElement('div');
+    row.className = 'hex-row';
+    row.innerHTML = renderRow(i);
+    inner.appendChild(row);
+  }
+}
+
+grid.addEventListener('scroll', () => updateVisible(grid.scrollTop));
+
+grid.addEventListener('mousemove', (e) => {
+  const t = e.target;
+  if (!t.classList.contains('hb')) {
+    tooltip.style.display = 'none';
+    return;
+  }
+  const off = parseInt(t.getAttribute('data-o'), 10);
+  const wr = grid.getBoundingClientRect();
+  let tx = e.clientX - wr.left + 12;
+  let ty = e.clientY - wr.top - 40;
+  if (tx + 340 > wr.width) tx = e.clientX - wr.left - 340;
+  if (ty < 4) ty = e.clientY - wr.top + 14;
+
+  tooltip.textContent = `Offset: 0x${off.toString(16).toUpperCase()}\nValue: 0x${rawData[off].toString(16).toUpperCase().padStart(2, '0')} (${rawData[off]})\nmouse clientY: ${e.clientY}\nwr.top: ${wr.top.toFixed(1)}\ntooltipY: ${ty.toFixed(1)}`;
+  tooltip.style.top = ty + 'px';
+  tooltip.style.left = tx + 'px';
+  tooltip.style.display = 'block';
+});
+
+grid.addEventListener('mouseleave', () => {
+  tooltip.style.display = 'none';
+});
+
+// Init
+updateVisible(0);
+</script>
+</body>
+</html>

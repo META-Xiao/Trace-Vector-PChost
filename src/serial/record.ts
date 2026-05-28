@@ -3,19 +3,15 @@
  *
  * 订阅串口原始字节流，保存为带时间戳的 .bin 文件供 ReplayController 回放。
  *
- * V2 格式（TVBIN2）:
- *   Magic:   "TVBIN2"  (6 bytes)
- *   Baud:    uint16 LE (2 bytes, baud rate / 100)
+ * Theia Monitor 录制格式:
+ *   Owner:   "Theia Monitor" (13 bytes, UTF-8)
+ *   Magic:   "THEIAv1" (7 bytes)
  *   [Chunk]:
  *     delta_ms: uint16 LE (2 bytes)
  *     data_len: uint16 LE (2 bytes)
  *     data:     uint8[data_len]
- *
- * V1 格式（旧）: 纯原始字节拼接，无 header。
  */
 import type { TelemetrySerialManager } from './manager';
-import { BAUDRATE } from './protocol';
-
 export type RecordState = 'idle' | 'recording' | 'paused';
 
 export interface RecordEvents {
@@ -28,14 +24,14 @@ interface ChunkEntry {
   data: Uint8Array;
 }
 
-const MAGIC_V2 = new Uint8Array([0x54, 0x56, 0x42, 0x49, 0x4E, 0x32]); // "TVBIN2"
+const MAGIC = new Uint8Array([0x54, 0x48, 0x45, 0x49, 0x41, 0x76, 0x31]); // "THEIAv1"
+const OWNER = new TextEncoder().encode('Theia Monitor'); // 13 bytes
 
 export class RecordController {
   private _state: RecordState = 'idle';
   private chunks: ChunkEntry[] = [];
   private _byteCount = 0;
   private _lastTs = 0;
-  private _baud = BAUDRATE;
   private events: RecordEvents = {};
   private unsubRaw: (() => void) | null = null;
   private serialManager: TelemetrySerialManager;
@@ -109,7 +105,7 @@ export class RecordController {
     if (this.chunks.length === 0) return;
 
     // 计算总大小
-    let total = MAGIC_V2.length + 2; // magic + baud
+    let total = OWNER.length + MAGIC.length; // owner + magic
     for (const c of this.chunks) {
       total += 2 + 2 + c.data.length; // delta + len + data
     }
@@ -118,11 +114,10 @@ export class RecordController {
     const view = new DataView(buf.buffer);
     let off = 0;
 
+    // owner signature
+    buf.set(OWNER, off); off += OWNER.length;
     // magic
-    buf.set(MAGIC_V2, off); off += MAGIC_V2.length;
-
-    // baud (uint16 LE)
-    view.setUint16(off, Math.round(this._baud / 100), true); off += 2;
+    buf.set(MAGIC, off); off += MAGIC.length;
 
     // chunks
     for (const c of this.chunks) {

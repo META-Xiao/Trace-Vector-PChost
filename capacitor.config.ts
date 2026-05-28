@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.tracevector.pchost',
-  appName: 'Trace Vector PC Host',
+  appId: 'com.theia.monitor',
+  appName: 'Theia Monitor',
   webDir: 'dist',
   server: { androidScheme: 'https' },
 };

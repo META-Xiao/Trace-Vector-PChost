@@ -27,8 +27,8 @@
     </nav>
 
     <main v-show="activeTab === 0" class="main">
-      <p class="hello">Good morning, Trace Vector!</p>
-      <h1>Trace Vector Host Dashboard</h1>
+      <p class="hello">{{ greeting }}, Trace Vector!</p>
+      <h1>Theia Monitor</h1>
 
       <section class="content-layout">
         <div class="left-column">
@@ -68,12 +68,12 @@
             </section>
 
             <aside class="mcu-card">
-              <LogCard title="MCU output" :logs="mcuLogs" :status="connectionStatus" />
+              <LogCard title="MCU output" :logs="mcuLogs" :status="connectionStatus" @clear="mcuLogs.length = 0" />
             </aside>
           </section>
 
-          <section class="pc-log-card">
-            <LogCard title="Host RX / Boot Log" :logs="hostLogs" :status="connectionStatus" />
+          <section class="binout-card">
+            <BinOutputSimple ref="binOutputRef" :status="connectionStatus" />
           </section>
         </div>
 
@@ -82,10 +82,7 @@
     </main>
 
     <SettingsView ref="settingsView" v-show="activeTab === 2" />
-    <VisionView
-      v-show="activeTab === 1"
-      :canvas-ref="visionPaneRef?.canvas"
-    />
+    <HexView v-show="activeTab === 1" />
 
     <!-- 移动端底部导航 -->
     <nav class="bottom-nav">
@@ -125,11 +122,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import SettingsView from "./SettingsView.vue";
-import VisionView from "./VisionView.vue";
+import HexView from "./HexView.vue";
 import LogCard from "../components/LogCard.vue";
 import AvatarMenu from "../components/AvatarMenu.vue";
 import CliPanel from "../components/CliPanel.vue";
 import VisionPane from "../components/VisionPane.vue";
+import BinOutputSimple from "../components/BinOutputSimple.vue";
 import SensorCard from "../components/SensorCard.vue";
 import ServoCard from "../components/ServoCard.vue";
 import { useCanvasAnimation } from "../composables/useCanvasAnimation";
@@ -222,8 +220,8 @@ function openTzPicker() {
   }
 }
 
-const tabs = ["Overview", "Vision", "Settings"];
-const tabIcons = ["lucide:layout-dashboard", "lucide:video", "lucide:settings"];
+const tabs = ["Overview", "Hex", "Settings"];
+const tabIcons = ["lucide:layout-dashboard", "lucide:file-code", "lucide:settings"];
 const activeTab = ref(0);
 const settingsView = ref<InstanceType<typeof SettingsView>>();
 
@@ -248,6 +246,13 @@ const uptime = computed(() => {
   const s = Math.floor((now.value - conn.connectedAt) / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   return h ? `${h}h ${m}m` : m ? `${m}m ${sec}s` : `${sec}s`;
+});
+
+const greeting = computed(() => {
+  const h = new Date(now.value).getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
 });
 
 const avatarRef = ref<InstanceType<typeof AvatarMenu>>();
@@ -324,13 +329,15 @@ function drawNoSignal() {
   ctx.fillText('No Signal', c.width / 2, c.height / 2);
 }
 
-const hostLogs = ref([
-  "[HOST 00:00:00] Trace Vector PC Host started",
-  "[HOST 00:00:01] serial manager ready",
-  "[HOST 00:00:02] protocol parser initialized",
-  "[HOST 00:00:03] resource monitor mounted",
-  "[HOST 00:00:04] image stream waiting for frame",
-]);
+console.log('[HOST] Theia Monitor started');
+console.log('[HOST] serial manager ready');
+console.log('[HOST] protocol parser initialized');
+console.log('[HOST] resource monitor mounted');
+console.log('[HOST] image stream waiting for frame');
+
+const binOutputRef = ref<InstanceType<typeof BinOutputSimple>>();
+let unsubRaw: (() => void) | null = null;
+let unsubReplayFrames: (() => void) | null = null;
 
 onMounted(() => {
   window.addEventListener("keydown", onKey);
@@ -350,12 +357,23 @@ onMounted(() => {
     c.height = height;
     ctx.putImageData(new ImageData(new Uint8ClampedArray(pixelData.buffer as ArrayBuffer), width, height), 0, 0);
   });
+  unsubRaw = serialManager.onRawData((data) => {
+    binOutputRef.value?.pushRawData(data);
+  });
+  // Replay mode: feed parsed frames to BinOutput (live mode uses raw path above)
+  unsubReplayFrames = serialManager.on((event) => {
+    if (event.type === 'FRAME') {
+      binOutputRef.value?.pushFrame(event.frame);
+    }
+  });
 });
 onUnmounted(() => {
   window.removeEventListener("keydown", onKey);
   if (nowTimer) clearInterval(nowTimer);
   stopAnim();
   unsubImage?.();
+  unsubRaw?.();
+  unsubReplayFrames?.();
 });
 </script>
 
@@ -500,8 +518,7 @@ h1 {
   display: grid;
   gap: 24px;
 }
-.telemetry-card,
-.pc-log-card {
+.telemetry-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow);
@@ -611,17 +628,6 @@ h1 {
   min-height: 0;
   max-height: 524px;
 }
-.pc-log-card {
-  border-radius: 24px;
-  padding: 18px;
-  max-height: 220px;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 24px;
-}
-.pc-logs {
-  max-height: 170px;
-}
 .empty {
   min-height: calc(100vh - 68px);
   display: grid;
@@ -677,9 +683,6 @@ h1 {
   .mcu-card {
     height: auto;
   }
-  .pc-log-card {
-    width: auto;
-  }
 }
 
 @media (max-width: 760px) {
@@ -700,9 +703,6 @@ h1 {
   }
   .telemetry-card {
     padding: 12px;
-  }
-  .pc-log-card {
-    width: auto;
   }
 }
 

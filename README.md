@@ -1,6 +1,6 @@
-# Trace-Vector-PChost
+# Theia Monitor
 
-原为[我队21届智能车竞赛所适配](https://github.com/META-Xiao/Trace-Vector)上位机，在开发的过程中对其进行大幅扩展，目前可以支持市面上常见的MCU作为上位机debug
+原名 Trace-Vector-PChost。原为[我队21届智能车竞赛所适配](https://github.com/META-Xiao/Trace-Vector)上位机，在开发的过程中对其进行大幅扩展，目前可以支持市面上常见的MCU作为上位机debug
 
 ## 功能特性
 
@@ -72,15 +72,22 @@ npm run build  # 构建
 - [x] CLI 命令发送面板
 - [x] Settings 功能实际生效（Channels 开关、Display 设置）
 - [x] 录制和回放功能（bin 文件直接读写）
+- [ ] CLI 命令发送功能
+- [ ] CLI 在MCU上接收指令并执行相应任务的方法文档
 
 ## TODO
 
-- [ ] **Hex 查看器**：这个页面将替代现有的vision界面（vision界面看起来多余了）
-  - [ ] 打开已有 .bin 文件进行离线查看
-  - [ ] Hex 查看器：类似 Hex Editor，按字节显示二进制数据
-  - [ ] 不同帧类型（0xCC/0xDD/0xEE）用不同颜色高亮
-  - [ ] 每帧内分块标注：Header（帧头+长度+帧号）、Data（图像/日志/资源数据）、Checksum
-  - [ ] 鼠标悬停显示字段名称和数值解析
+- [x] **Hex 查看器**：这个页面将替代现有的vision界面（vision界面看起来多余了）
+  - [x] 打开已有 .bin 文件进行离线查看
+  - [x] Hex 查看器：类似 Hex Editor，按字节显示二进制数据
+  - [x] 不同帧类型（0xCC/0xDD/0xEE）用不同颜色高亮
+  - [x] 每帧内分块标注：Header（帧头+长度+帧号）、Data（图像/日志/资源数据）、Checksum
+  - [x] 鼠标悬停显示字段名称和数值解析
+  - [ ] 考虑是否添加悬浮在各帧时，右侧显示具体的渲染效果
+    - [x] 实现对图像 `Payload` 数据的预览
+
+- [ ] `serial` 实现 Pixel Format：JPEG(5)、PNG(6)、User(7)
+- [ ] `serial` 实现 Codec：TileHS(5)、PatchHS(6) 
 
 ## 文档
 
