@@ -47,12 +47,14 @@
             ></div>
           </div>
         </div>
+      </div>
+      <Teleport to="body">
         <div
           v-if="tooltipVisible"
           class="hex-tooltip"
           :style="{ top: tooltipY + 'px', left: tooltipX + 'px' }"
         >{{ tooltipText }}</div>
-      </div>
+      </Teleport>
     </div>
   </div>
 </template>
@@ -182,10 +184,9 @@ function onMouseMove(e: MouseEvent) {
   }
   tooltipText.value = text;
 
-  const wr = gridWrap.value!.getBoundingClientRect();
-  let tx = e.clientX - wr.left + 12, ty = e.clientY - wr.top - 40;
-  if (tx + 340 > wr.width) tx = e.clientX - wr.left - 340;
-  if (ty < 4) ty = e.clientY - wr.top + 14;
+  let tx = e.clientX + 12, ty = e.clientY - 40;
+  if (tx + 340 > window.innerWidth) tx = e.clientX - 340;
+  if (ty < 4) ty = e.clientY + 14;
   tooltipX.value = tx;
   tooltipY.value = ty;
   tooltipVisible.value = true;
@@ -432,7 +433,7 @@ function formatSize(b: number): string {
 .hb:hover { outline: 2px solid #fff; outline-offset: -1px; z-index: 1; position: relative; }
 
 .hex-tooltip {
-  position: absolute; background: rgba(15,23,42,.94); border: 1px solid rgba(255,255,255,.15);
+  position: fixed; background: rgba(15,23,42,.94); border: 1px solid rgba(255,255,255,.15);
   border-radius: 8px; padding: 8px 12px; color: #e2e8f0;
   font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; line-height: 1.5;
   white-space: pre; pointer-events: none; z-index: 10; max-width: 420px;
