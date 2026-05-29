@@ -32,9 +32,12 @@ CS = Σ(Sync + Length + Body) & 0xFF
 
 | 帧类型 | Sync | Body 结构 | 典型频率 |
 |--------|------|-----------|---------|
-| 图传 | 0xCC | FrameID(2B) + W(1B) + H(1B) + Format(1B) + Payload | ≤ 120 FPS |
-| 日志 | 0xDD | UTF-8 文本 (≤ 256B) | 5 Hz |
-| 资源 | 0xEE | CPU(1B) + RAM(2B) + ROM(2B) + Speed(2B) + Servo(2B) | 5 Hz |
+| 图传 | 0xCC | FrameID(2B) + W(1B) + H(1B) + Format(1B) + Payload | 硬件决定¹ |
+| 日志 | 0xDD | UTF-8 文本 (≤ 256B) | ≤ 5 Hz |
+| 资源 | 0xEE | CPU(1B) + RAM(2B) + ROM(2B) + Speed(2B) + Servo(2B) | ≤ 5 Hz |
+| CLI | 0xFF | Flags(1B) + UTF-8 文本 (≤ 255B) | 按需 |
+
+> ¹ **Host 不设帧率上限。** 实际 FPS = MCU 渲染 + 传输时间。USB-CDC 下小帧传输可忽略，瓶颈在渲染；物理 UART 下大帧带宽可能成为瓶颈。FreeRTOS 可做动态帧率——场景简单时自动快、复杂时自动慢，Host 零改动。
 
 **Format 字节**：高 4 位 = PixelFormat，低 4 位 = Codec
 

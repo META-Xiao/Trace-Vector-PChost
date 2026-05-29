@@ -165,8 +165,29 @@
 **总字节数**: 13B
 
 
-并且对于每个数据块得到的结果，在上位机中表示为：`Block[idx]` idx就是数据块的下标（0-base）
+并且对于每个数据块得到的结果，在上位机中表示为：`Block[idx]` idx就是数据块的下标（0-base）  
 上位机显示的数据可用自定义计算结果，例如我设计的`Block[2]` 是传出MCU的ROM剩余字节数，但是我又想在host的图表中显示ROM的占用率，那么就可以通过`(ROM_TOTAL - Block[2]) / ROM_TOTAL`来计算 ，并填入 Setting -> Resources Frame -> ROM -> Expr 中，这里的`ROM_TOTAL`就是上位机中设置的ROM总大小，在Setting -> Env 添加环境变量。
+
+## 2.4 CLI 帧 (0xFF)
+
+**方向**：MCU → Host（单向，Host 不发此帧）
+
+**帧结构**：
+
+```
+┌─────┬────────┬──────────────┬──────────┐
+│ ID  │ Length │ Text         │ Checksum │
+├─────┼────────┼──────────────┼──────────┤
+│ 0xFF│ (2B)   │ (0-256B)     │ (1B)     │
+└─────┴────────┴──────────────┴──────────┘
+```
+
+**字段说明**：
+- `Length`: 文本字节数（uint16 大端，最大 256）
+- `Text`: UTF-8 编码的命令输出文本块，可含 `\n`、`\r\n`
+- `Checksum`: 所有字节和 & 0xFF（含帧头 0xFF）
+
+**总字节数**: 4 + N（0~256）
 
 ---
 
@@ -192,15 +213,30 @@ checksum = (byte[0] + byte[1] + ... + byte[N-1]) & 0xFF
 
 ---
 
-## 5. 时序参考
+## 5. 时序与帧率
 
-115200 bps 下各帧传输耗时（含帧头和校验和）：
+### 5.1 Host 端行为
 
-| 帧类型 | 典型大小 | 传输耗时 |
-|--------|----------|----------|
-| 图传帧 (0xCC) | 22568B（188×120） | ≈ 1960ms |
-| 日志帧 (0xDD) | 4–260B | < 23ms |
-| 资源帧 (0xEE) | 13B | < 2ms |
+**Host 不设帧率上限。** Host 只按帧头逐帧解析，MCU 发多快它就收多快。帧率达到什么水平完全取决于 MCU 的渲染能力 + 串口带宽，与 Host 无关。
+
+### 5.2 实际帧率
+
+帧率完全由 MCU 端决定，Host 不设任何限制：
+
+- **USB-CDC**：虚拟波特率，实际带宽为数 Mbps，小帧（<1KB）的传输时间可忽略不计。瓶颈在 MCU 渲染速度，不在传输。实测 64×64 1bpp 可达 150+ FPS。
+- **物理 UART / 无线串口**：带宽受限于实际波特率。115200 bps 下，188×120 RGB565（~22KB）纯传输约 2 秒，是大帧的真正瓶颈。
+
+> **实际 FPS = MCU 渲染时间 + 传输时间（UART 下显著，CDC 下可忽略）。** Host 只被动解析，帧率变化对它透明。
+
+### 5.3 动态帧率（FreeRTOS）
+
+使用 RTOS 时，帧率可以**自适应系统负载**：
+
+- **`vTaskDelayUntil(tick, floor)`**：设短地板（如 5ms），实际帧率由渲染+传输时间自然决定。场景简单→帧率自动上升；场景复杂→自动下降。
+- **事件驱动暂停**：`ulTaskNotifyTake()` 深度阻塞，暂停期间 CPU 利用率为 0；`xTaskNotifyGive()` 微秒级唤醒。
+- **TX 反压**：当 `Serial` 缓冲区满时 `write()` 自然阻塞 → 任务让出 CPU → 其他任务获得时间片。
+
+Host 端始终无感知——它只看到帧来得快或慢，不需要任何协议层面的流控字段。
 
 图传帧体积远大于其他帧，MCU 端建议使用异步/DMA 发送以避免阻塞。
 
@@ -264,9 +300,99 @@ while True:
         #   ram = (data[3]<<8) | data[4]
         #   speed = int16_from_be(data[5:7])
         #   servo = int16_from_be(data[7:9])
+
+    elif byte == 0xFF:        # CLI 输出帧
+        length    = read_uint16_be()
+        flags     = read_uint8()
+        text      = read_bytes(length - 1).decode('utf-8')
+        checksum  = read_uint8()
+        # 验证校验和后，将 text 流式追加到上位机 CLI 终端输出区
+        # flags & 0x01 == 1 表示命令结束，显示输入提示符
+        cli_output_append(text, done=(flags & 0x01))
 ```
 
 ---
 
-**文档版本**: 3.2
-**更新日期**: 2026-05-27
+## 2.4 CLI 帧 (0xFF)
+
+**方向**：MCU → Host（单向，Host 不发此帧）
+
+**帧结构**：
+
+```
+┌─────┬────────┬───────┬──────────────┬──────────┐
+│ ID  │ Length │ Flags │ Text         │ Checksum │
+├─────┼────────┼───────┼──────────────┼──────────┤
+│ 0xFF│ (2B)   │ (1B)  │ (0-255B)     │ (1B)     │
+└─────┴────────┴───────┴──────────────┴──────────┘
+```
+
+**字段说明**：
+- `Length`: Flags + Text 的总字节数（uint16 大端，最小 1）
+- `Flags`: 执行状态标志（uint8）
+
+  | 值 | 名称 | 说明 |
+  |----|------|------|
+  | `0x00` | CONT | 命令仍在执行，后续还有输出 |
+  | `0x01` | END  | 命令执行完毕 |
+  | `0x02` | ERR  | 命令执行出错（可与 END 组合：`0x03`） |
+
+- `Text`: UTF-8 编码的输出文本块，可含 `\n`、`\r\n`，可为空（仅发 Flags）
+- `Checksum`: 所有字节和 & 0xFF（含帧头 0xFF）
+
+**总字节数**: 4 + N（N = 0–255）
+
+---
+
+## 7. CLI 通信机制
+
+### 7.1 Host → MCU（命令发送）
+
+Host 直接发送原始 UTF-8 字节，**不封装帧**：
+
+```
+<command> <args...>\n
+```
+
+- 以 `\n`（0x0A）结尾作为命令终止符
+- MCU 端通过 UART 中断或 DMA 接收，按 `\n` 分割解析命令
+- 命令格式：`函数名 [参数...]`，空格分隔，例如 `set_speed 100`、`get_status`
+
+### 7.2 MCU → Host（应答输出）
+
+MCU 执行命令后，通过 **0xFF 帧**返回输出：
+
+- 每帧携带 `Flags` 字节，Host 据此控制终端输入行的显示
+- `CONT`（0x00）：命令仍在执行，Host 隐藏输入提示符，继续追加输出
+- `END`（0x01）：命令完成，Host 显示输入提示符，允许下一条命令
+- `ERR`（0x02）或 `END|ERR`（0x03）：命令出错，Host 可高亮显示
+- 每帧 Text 最多 255 字节，长输出自动分帧；可发仅含 Flags 的空文本帧作为结束信号
+- 0xFF 帧与其他遥测帧（0xCC/0xDD/0xEE）混合传输，互不干扰
+
+### 7.3 MCU 端实现要点
+
+```c
+#define CLI_CONT 0x00
+#define CLI_END  0x01
+#define CLI_ERR  0x02
+
+void cli_send(const char *text, uint8_t flags) {
+    uint16_t tlen = strlen(text);
+    if (tlen > 255) tlen = 255;
+    uint16_t length = 1 + tlen;  // Flags(1) + Text
+    uint8_t hdr[3] = { 0xFF, (uint8_t)(length >> 8), (uint8_t)(length & 0xFF) };
+    uint8_t cs = 0;
+    for (int i = 0; i < 3; i++) cs += hdr[i];
+    cs += flags;
+    for (uint16_t i = 0; i < tlen; i++) cs += (uint8_t)text[i];
+    uart_write(hdr, 3);
+    uart_write(&flags, 1);
+    uart_write((uint8_t*)text, tlen);
+    uart_write(&cs, 1);
+}
+```
+
+---
+
+**文档版本**: 3.4
+**更新日期**: 2026-05-28
