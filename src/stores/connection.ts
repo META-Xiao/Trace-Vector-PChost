@@ -5,4 +5,5 @@ export const conn = reactive({
   mcuName: "",
   portLabel: "",
   connectedAt: null as number | null,
+  transport: 'serial' as 'serial' | 'tcp',
 });

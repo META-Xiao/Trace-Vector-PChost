@@ -52,8 +52,9 @@
     | `2` | HEATSHRINK | 面向MCU的小型LZ压缩算法，支持Streaming，RAM占用低（不代表没有占用，至少8KB的占用是存在的，而且对CPU要求也有不小要求） |
     | `3` | Tile | 变化检测：分块对比I/P帧，仅传输变化区块（无熵编码，调试用） |
     | `4` | Patch | 变化检测：最小矩形覆盖变化区域，传矩形内RAW数据（无熵编码，调试用） |
-    | `5` | Tile+HEATSHRINK | Tile 变化检测后 HEATSHRINK 压缩变化区块数据（**生产主力**） |
-    | `6` | Patch+HEATSHRINK | Patch 变化检测后 HEATSHRINK 压缩矩形内数据（**生产主力**） |
+    | `5` | Tile+HEATSHRINK | Tile 变化检测后 HEATSHRINK 压缩变化区块数据 |
+    | `6` | Patch+HEATSHRINK | Patch 变化检测后 HEATSHRINK 压缩矩形内数据 |
+    | `7` | SparseBoundary | 灰度/二值底图 + 边界坐标分离传输（PixelFormat 0/1 专用） |
 
     **Codec 3 — Tile 编码格式**：
 
@@ -84,16 +85,42 @@
 
     **Codec 5/6 — 复合编码**：
 
-    变化检测与熵编码分层组合。以 Codec 5（Tile+HEATSHRINK）为例：
+    Codec 5（Tile+HEATSHRINK）：Tile 变化检测 → 拼接变化区块 → HEATSHRINK 压缩。
+    Codec 6（Patch+HEATSHRINK）：Patch 变化检测 → 拼接变化矩形 → HEATSHRINK 压缩。
 
-    1. Tile 算法比较 I/P 帧，找出变化区块
-    2. 将变化的 `BlockID|Data|BlockID|Data|...` 拼接
-    3. 对拼接后的整段数据进行 HEATSHRINK 压缩
-    4. Payload = HEATSHRINK(拼接数据)
+    **Codec 7 — SparseBoundary 编码**（仅 PixelFormat 0/1）：
 
-    Codec 6（Patch+HEATSHRINK）同理：Patch 选出变化矩形 -> `x1|y1|x2|y2|Data` 拼接 -> HEATSHRINK 压缩。
+    灰度或二值化底图与赛道边界坐标**分离传输**。Host 收到后在灰度图上渲染彩色边界线。
 
-    > **I/P 帧机制**：上位机始终缓存上一有效帧的 RAW 数据。P 帧（Codec 3/4/5/6）依赖 I 帧解码，I 帧丢失时上位机丢弃后续 P 帧直至收到新 I 帧（通常定期插入）。
+    **适用 PixelFormat**: `Binary1` (0), `Gray8` (1)
+
+    **Payload 格式**:
+
+    ```
+    | ImageData  | LineCount | [Color | Count | X[0]...X[Count-1] ] × N |
+    | raw pixels | 1B        | 2B RGB565 BE | 1B | 1B each               |
+    ```
+
+    - `ImageData`: 按 PixelFormat 的原始像素数据（Gray8 = W×H B, Binary1 = ceil(W×H/8) B）
+    - `LineCount`: 边界线数量（0-255，0 表示纯底图无标注）
+    - `Color`: RGB565 大端，该线的绘制颜色
+    - `Count`: 坐标点数（通常 = 图像高度 H）
+    - `X[i]`: 第 i 行的 X 坐标（Y 隐式 = i，坐标 < 255 用 8-bit）
+
+    **188×120 示例**（3 线 左红/中绿/右蓝）：
+
+    | 部分 | 大小 |
+    |------|------|
+    | ImageData (Gray8) | 22,560 B |
+    | LineCount | 1 B |
+    | 左线 (Color+Count+120X) | 123 B |
+    | 中线 | 123 B |
+    | 右线 | 123 B |
+    | **总 Payload** | **22,930 B** |
+
+    > 相比 RGB565 RAW 的 45,120 B 减半。结合 Tile (8.2) 可进一步压缩。
+
+    > **I/P 帧机制**：上位机始终缓存上一有效帧的 RAW 数据。P 帧（Codec 3/4/5）依赖 I 帧解码，I 帧丢失时上位机丢弃后续 P 帧直至收到新 I 帧（通常定期插入）。
 
 ---
 
@@ -394,5 +421,61 @@ void cli_send(const char *text, uint8_t flags) {
 
 ---
 
-**文档版本**: 3.4
-**更新日期**: 2026-05-28
+## 8. TODO / 未来优化
+
+### 8.1 Codec 7 — SparseBoundary：灰度/二值 + 边界坐标分离（参考逐飞助手协议）
+
+**适用 PixelFormat**：仅 `Binary1` (0) 和 `Gray8` (1)
+
+**Format 字节**：
+| Format | PixelFormat | Codec | 用途 |
+|--------|-------------|-------|------|
+| `0x07` | Binary1 | SparseBoundary | 二值化底图 + 边界坐标 |
+| `0x17` | Gray8   | SparseBoundary | 灰度底图 + 边界坐标 |
+
+**Payload 结构**：
+
+```
+┌──────────────────────┬──────────────────────────────────────────────────┐
+│ ImageData            │ BoundarySection                                  │
+│ Binary1: ceil(W×H/8)B│                                                  │
+│ Gray8:   W×H B       │                                                  │
+└──────────────────────┴──────────────────────────────────────────────────┘
+
+BoundarySection:
+  LineCount(1B)  边界线数量（可为 0，表示纯底图无标注）
+  
+  每条线:
+    Color     (2B)  RGB565 大端，该线的绘制颜色
+    Count     (1B)  坐标点数（= 图像高度 H，因每行一个 X 坐标）
+    X[0..H-1] (1B each)  各行的 X 坐标（Y 隐式 = 数组下标）
+```
+
+**188×120 示例**（3 条边界线 左/中/右）：
+
+| 部分 | 大小 | 说明 |
+|------|------|------|
+| ImageData (Gray8) | 22,560 B | 188×120 灰度原图直发 |
+| LineCount | 1 B | = 3 |
+| 左线 Color+Count+Xs | 2+1+120 = 123 B | 红色 0xF800 |
+| 中线 Color+Count+Xs | 123 B | 绿色 0x07E0 |
+| 右线 Color+Count+Xs | 123 B | 蓝色 0x001F |
+| **总 Payload** | **22,930 B** | |
+| **总帧** | **22,939 B** | vs RGB565 的 45,129 B，**减半** |
+
+**设计决策**（已确定）：
+- 复用现有 0xCC 帧，扩展 Codec=7，不引入新帧类型
+- 坐标 8-bit（MT9V03X_W=188 < 255，足够）
+- 颜色 RGB565 原始值（2 字节），不做调色板索引
+
+### 8.2 Tile 编码用于灰度/二值图
+
+Gray8/Binary1 + Tile 变化检测（类似现有 RGB565 Tile），P 帧仅发送变化的灰度/二值块。
+- Gray8: 每块 12×12×1 = 144B（vs RGB565 的 288B，减半）
+- Binary1: 每块 12×12/8 = 18B（vs RGB565 的 288B，**16 倍压缩**）
+- 结合 SparseBoundary: P 帧 = 变化块 + 变化边界线，极致省带宽
+
+---
+
+**文档版本**: 3.5
+**更新日期**: 2026-05-29

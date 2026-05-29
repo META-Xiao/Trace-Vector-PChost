@@ -1,10 +1,7 @@
-import { SerialPortManager, SerialOptions, deviceNameFromInfo } from './port';
+import { SerialPortManager, TcpPortManager, deviceNameFromInfo } from './port';
 import { FrameParser, FrameParseError } from './parser';
 import { TelemetryFrame, BAUDRATE } from './protocol';
 
-/**
- * 串口通信事件
- */
 export type SerialEvent =
   | { type: 'CONNECTED'; info?: Record<string, unknown> }
   | { type: 'DISCONNECTED' }
@@ -14,155 +11,145 @@ export type SerialEvent =
 
 export type SerialEventHandler = (event: SerialEvent) => void;
 
-/**
- * 遥测串口通信管理器
- *
- * 功能：
- * - WebSerial 端口管理
- * - 帧解析和验证
- * - 事件分发
- */
+export type TransportMode = 'serial' | 'tcp';
+
 export class TelemetrySerialManager {
-  private portManager: SerialPortManager;
+  private serialPort: SerialPortManager;
+  private tcpPort: TcpPortManager;
   private frameParser: FrameParser;
   private eventHandlers: Set<SerialEventHandler> = new Set();
   private rawHandlers: Set<(data: Uint8Array) => void> = new Set();
   private isReading = false;
   private readAbortController: AbortController | null = null;
+  private mode: TransportMode = 'serial';
 
   constructor() {
-    this.portManager = new SerialPortManager();
+    this.serialPort = new SerialPortManager();
+    this.tcpPort = new TcpPortManager();
     this.frameParser = new FrameParser();
+
+    this.tcpPort.onData((data: Uint8Array) => {
+      if (!this.isReading) return;
+      for (const h of this.rawHandlers) {
+        try { h(data); } catch (e) { console.error(e); }
+      }
+      const results = this.frameParser.parse(data);
+      for (const result of results) {
+        if (result instanceof FrameParseError) {
+          this.emitEvent({ type: 'FRAME_ERROR', error: result });
+        } else {
+          this.emitEvent({ type: 'FRAME', frame: result });
+        }
+      }
+    });
+
+    this.tcpPort.onDisconnect(() => {
+      if (this.mode === 'tcp') {
+        this.isReading = false;
+        this.emitEvent({ type: 'DISCONNECTED' });
+      }
+    });
   }
 
-  /**
-   * 检查 WebSerial 支持
-   */
-  static isSupported(): boolean {
+  static isSerialSupported(): boolean {
     return SerialPortManager.isSupported();
   }
 
-  /**
-   * 请求选择串口
-   */
-  async selectPort(): Promise<void> {
-    await this.portManager.requestPort();
+  static isTcpSupported(): boolean {
+    return TcpPortManager.isSupported();
   }
 
-  /**
-   * 连接串口
-   */
+  /** 请求选择串口 (仅 serial 模式) */
+  async selectPort(): Promise<void> {
+    await this.serialPort.requestPort();
+  }
+
+  /** 串口连接 (兼容旧 API) */
   async connect(baudRate: number = BAUDRATE): Promise<void> {
+    await this.connectSerial(baudRate);
+  }
+
+  /** 串口连接 */
+  async connectSerial(baudRate: number = BAUDRATE): Promise<void> {
     try {
-      await this.portManager.open(baudRate);
-      const info = this.portManager.getPortInfo();
-      const deviceName = info ? deviceNameFromInfo(info) : "Serial";
-      this.emitEvent({ type: 'CONNECTED', info: { deviceName } });
-      this.startReading();
+      await this.serialPort.open(baudRate);
+      this.mode = 'serial';
+      const info = this.serialPort.getPortInfo();
+      const name = info ? deviceNameFromInfo(info) : "Serial";
+      this.emitEvent({ type: 'CONNECTED', info: { deviceName: name, transport: 'serial' } });
+      this.startReadingSerial();
     } catch (error) {
-      this.emitEvent({
-        type: 'ERROR',
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
+      this.emitEvent({ type: 'ERROR', error: error instanceof Error ? error : new Error(String(error)) });
       throw error;
     }
   }
 
-  /**
-   * 断开连接
-   */
+  /** TCP 连接 */
+  async connectTcp(ip: string, port: number): Promise<void> {
+    console.log('[Manager] connectTcp called:', ip, port);
+    try {
+      await this.tcpPort.connect(ip, port);
+      console.log('[Manager] tcpPort.connect OK');
+      this.mode = 'tcp';
+      this.isReading = true;
+      this.emitEvent({ type: 'CONNECTED', info: { deviceName: `${ip}:${port}`, transport: 'tcp' } });
+    } catch (error) {
+      console.error('[Manager] connectTcp failed:', error);
+      this.emitEvent({ type: 'ERROR', error: error instanceof Error ? error : new Error(String(error)) });
+      throw error;
+    }
+  }
+
   async disconnect(): Promise<void> {
-    this.stopReading();
-    await this.portManager.close();
+    this.isReading = false;
+    if (this.readAbortController) { this.readAbortController.abort(); this.readAbortController = null; }
+    if (this.mode === 'serial') await this.serialPort.close();
+    else await this.tcpPort.close();
     this.emitEvent({ type: 'DISCONNECTED' });
   }
 
-  /**
-   * 获取连接状态
-   */
   isConnected(): boolean {
-    return this.portManager.getIsOpen();
+    return this.mode === 'serial' ? this.serialPort.getIsOpen() : this.tcpPort.getIsOpen();
   }
 
-  /**
-   * 订阅事件
-   */
+  getMode(): TransportMode { return this.mode; }
+
   on(handler: SerialEventHandler): () => void {
     this.eventHandlers.add(handler);
-    // 返回取消订阅函数
-    return () => {
-      this.eventHandlers.delete(handler);
-    };
+    return () => { this.eventHandlers.delete(handler); };
   }
 
-  /**
-   * 取消订阅事件
-   */
-  off(handler: SerialEventHandler): void {
-    this.eventHandlers.delete(handler);
-  }
+  off(handler: SerialEventHandler): void { this.eventHandlers.delete(handler); }
 
-  /**
-   * 订阅原始串口数据（解析前）
-   */
   onRawData(handler: (data: Uint8Array) => void): () => void {
     this.rawHandlers.add(handler);
     return () => { this.rawHandlers.delete(handler); };
   }
 
-  /**
-   * 发送数据
-   */
   async write(data: Uint8Array): Promise<void> {
-    await this.portManager.write(data);
+    if (this.mode === 'serial') await this.serialPort.write(data);
+    else await this.tcpPort.write(data);
   }
 
-  /**
-   * 私有方法：开始读取数据
-   */
-  private startReading(): void {
+  private startReadingSerial(): void {
     if (this.isReading) return;
-
     this.isReading = true;
     this.readAbortController = new AbortController();
-
-    this.readLoop().catch((error) => {
-      if (error.name !== 'AbortError') {
-        this.emitEvent({
-          type: 'ERROR',
-          error: error instanceof Error ? error : new Error(String(error)),
-        });
+    this.readLoopSerial().catch((error) => {
+      if ((error as Error).name !== 'AbortError') {
+        this.emitEvent({ type: 'ERROR', error: error instanceof Error ? error : new Error(String(error)) });
       }
     });
   }
 
-  /**
-   * 私有方法：停止读取数据
-   */
-  private stopReading(): void {
-    this.isReading = false;
-    if (this.readAbortController) {
-      this.readAbortController.abort();
-      this.readAbortController = null;
-    }
-  }
-
-  /**
-   * 私有方法：读取循环
-   */
-  private async readLoop(): Promise<void> {
+  private async readLoopSerial(): Promise<void> {
     try {
-      for await (const bytes of this.portManager.readBytes()) {
+      for await (const bytes of this.serialPort.readBytes()) {
         if (!this.isReading) break;
-
-        // 通知原始数据监听器（录制等）
         for (const h of this.rawHandlers) {
-          try { h(bytes); } catch (e) { console.error('Raw handler error:', e); }
+          try { h(bytes); } catch (e) { console.error(e); }
         }
-
-        // 解析帧
         const results = this.frameParser.parse(bytes);
-
         for (const result of results) {
           if (result instanceof FrameParseError) {
             this.emitEvent({ type: 'FRAME_ERROR', error: result });
@@ -172,29 +159,15 @@ export class TelemetrySerialManager {
         }
       }
     } catch (error) {
-      if (this.isReading) {
-        throw error;
-      }
+      if (this.isReading) throw error;
     }
   }
 
-  /**
-   * 公开方法：分发事件（用于测试）
-   */
-  emit(event: SerialEvent): void {
-    this.emitEvent(event);
-  }
+  emit(event: SerialEvent): void { this.emitEvent(event); }
 
-  /**
-   * 私有方法：分发事件
-   */
   private emitEvent(event: SerialEvent): void {
     for (const handler of this.eventHandlers) {
-      try {
-        handler(event);
-      } catch (error) {
-        console.error('Error in event handler:', error);
-      }
+      try { handler(event); } catch (e) { console.error(e); }
     }
   }
 }

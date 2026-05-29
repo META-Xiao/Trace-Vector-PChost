@@ -264,21 +264,24 @@ function closePopups() {
 }
 
 async function connectActive(channel: string, baud: number, wifiEndpoint: string) {
+  console.log('[Overview] connectActive:', channel, baud, wifiEndpoint);
   try {
     if (channel === "wifi") {
-      conn.connected = true;
-      conn.connectedAt = Date.now();
-      conn.mcuName = wifiEndpoint;
+      const [ip, portStr] = wifiEndpoint.split(':');
+      const port = parseInt(portStr) || 8086;
+      console.log('[Overview] wifi connect to', ip, port);
+      await serialManager.connectTcp(ip, port);
+      console.log('[Overview] wifi connect OK');
       conn.portLabel = `WIFI ${wifiEndpoint}`;
     } else {
       await serialManager.selectPort();
-      await serialManager.connect(baud);
+      await serialManager.connectSerial(baud);
       conn.portLabel = channel === "usb_cdc"
         ? `USB-CDC ${baud}`
         : `UART ${baud}`;
     }
   } catch (error) {
-    console.error("Connect failed:", error);
+    console.error("[Overview] Connect failed:", error);
   }
 }
 

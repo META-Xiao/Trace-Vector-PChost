@@ -4,14 +4,13 @@
   "description": "Theia Monitor - Real-time MCU telemetry visualization with hex analysis",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "mcutest": "vite --mode mcutest",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test": "vitest",
+    "front": "vite --mode front",
+    "vite": "vite",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "vitest run",
+    "test:auto": "vitest",
     "test:ui": "vitest --ui",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android"
   },
@@ -21,6 +20,7 @@
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@iconify/vue": "^5.0.1",
+    "@tauri-apps/api": "^2.11.0",
     "vue": "^3.3.0"
   },
   "devDependencies": {

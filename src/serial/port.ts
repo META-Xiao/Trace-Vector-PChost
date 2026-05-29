@@ -211,3 +211,64 @@ export class SerialPortManager {
     return this.isOpen;
   }
 }
+
+// ── Tauri TCP (v2 API) ─────────────────────────────────────────────
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+
+/**
+ * TCP 端口管理器 (通过 Tauri Rust 后端 std::net::TcpStream)
+ *
+ * 接口与 SerialPortManager 对齐，TelemetrySerialManager 可无感切换。
+ */
+export class TcpPortManager {
+  private isOpen = false;
+  private readCallbacks: Array<(data: Uint8Array) => void> = [];
+  private disconnectedCallback: (() => void) | null = null;
+  private unlistenDisconnect: (() => void) | null = null;
+  private unlistenData: (() => void) | null = null;
+
+  static isSupported(): boolean { return true; }
+
+  async connect(ip: string, port: number): Promise<void> {
+    console.log('[TcpPort] listening on 0.0.0.0:', port, 'invoke=', typeof invoke);
+    let result: unknown;
+    try {
+      result = await invoke('tcp_listen', { port });
+    } catch (e: any) {
+      console.error('[TcpPort] invoke error:', e);
+      throw new Error(`TCP listen failed: ${e?.message || e} (invoke type=${typeof invoke})`);
+    }
+    console.log('[TcpPort] tcp_listen result:', result);
+    this.isOpen = true;
+    this.unlistenData = await listen<number[]>('tcp-data', (event) => {
+      console.log('[TcpPort] tcp-data received, len=', event.payload.length);
+      const data = new Uint8Array(event.payload);
+      for (const cb of this.readCallbacks) {
+        try { cb(data); } catch (e) { console.error(e); }
+      }
+    });
+    this.unlistenDisconnect = await listen('tcp-disconnected', () => {
+      console.log('[TcpPort] tcp-disconnected event');
+      this.isOpen = false;
+      if (this.disconnectedCallback) this.disconnectedCallback();
+    });
+  }
+
+  async close(): Promise<void> {
+    console.log('[TcpPort] close');
+    if (this.unlistenData) { this.unlistenData(); this.unlistenData = null; }
+    if (this.unlistenDisconnect) { this.unlistenDisconnect(); this.unlistenDisconnect = null; }
+    try { await invoke('tcp_stop'); } catch {}
+    this.isOpen = false;
+  }
+
+  async write(data: Uint8Array): Promise<void> {
+    console.log('[TcpPort] write', data.length, 'bytes');
+    await invoke('tcp_send', { data: Array.from(data) });
+  }
+
+  onData(cb: (data: Uint8Array) => void): void { this.readCallbacks.push(cb); }
+  onDisconnect(cb: () => void): void { this.disconnectedCallback = cb; }
+  getIsOpen(): boolean { return this.isOpen; }
+}

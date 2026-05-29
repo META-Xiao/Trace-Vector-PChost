@@ -139,7 +139,7 @@ const activeChannel = ref<ChannelId>('usb_cdc');
 
 const serialDraft = reactive({
   baud: 115200,
-  wifiEndpoint: '192.168.4.1:8080',
+  wifiEndpoint: '10.213.100.4:8086',
 });
 
 function onConnect() {

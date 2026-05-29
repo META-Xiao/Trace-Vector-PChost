@@ -10,6 +10,12 @@ import { startFrontendMock } from '../serial/__tests__/frontend-mock';
 const HISTORY = 12;
 
 export const serialManager = new TelemetrySerialManager();
+
+/** TCP 连接 (WiFi SPI 模块) */
+export async function connectTcp(ip: string, port: number) {
+  await serialManager.connectTcp(ip, port);
+}
+
 const resourceManager = new ResourceManager();
 const logManager = new LogProcessManager(serialManager);
 const imageManager = new ImageProcessManager(serialManager);
@@ -20,11 +26,13 @@ serialManager.on((event) => {
     conn.connected = true;
     conn.connectedAt = Date.now();
     conn.mcuName = (event.info?.deviceName as string) || 'Serial';
+    conn.transport = (event.info?.transport as 'serial' | 'tcp') || 'serial';
   } else if (event.type === 'DISCONNECTED') {
     conn.connected = false;
     conn.mcuName = '';
     conn.portLabel = '';
     conn.connectedAt = null;
+    conn.transport = 'serial';
   }
 });
 
@@ -176,7 +184,8 @@ export function useTelemetry() {
     if (refCount++ === 0) {
       logManager.start();
       imageManager.start();
-      if (import.meta.env.MODE === 'development') {
+      /* 仅 npm run front 启用 mock; npm run dev (tauri) 走真实数据 */
+      if (import.meta.env.MODE === 'front') {
         stopMock = startFrontendMock(serialManager);
       }
     }
