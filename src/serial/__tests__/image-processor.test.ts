@@ -201,14 +201,212 @@ describe('ImageFrameProcessor', () => {
       length: 5 + TOTAL_PIXELS,
       width: WIDTH,
       height: HEIGHT,
-      format: makeFormat(PixelFormat.Gray8, Codec.RLE),
+      format: makeFormat(PixelFormat.Gray8, Codec.PatchHEATSHRINK),
       pixelFormat: PixelFormat.Gray8,
-      codec: Codec.RLE,
+      codec: Codec.PatchHEATSHRINK,
       payload,
       checksum: 0,
     };
 
     expect(() => processor.process(frame)).toThrow('not yet implemented');
+  });
+
+  // ── SparseBoundary (Codec 7) tests ──────────────────────────────
+
+  describe('SparseBoundary (Codec 7)', () => {
+    const W = 8;
+    const H = 4;
+
+    it('Gray8 + 1 boundary line: red vertical line at x=4', () => {
+      const imgSize = W * H; // 32 bytes Gray8
+      const gray = new Uint8Array(imgSize);
+      gray.fill(128); // mid-gray background
+
+      // BoundarySection: LineCount=1, Color=0xF800(red), Count=H, X[0..H-1]=4
+      const bound = new Uint8Array([
+        1,           // LineCount
+        0xF8, 0x00,  // Red RGB565
+        H,           // Count = 4
+        4, 4, 4, 4,  // X=4 for each row
+      ]);
+      const payload = new Uint8Array(imgSize + bound.length);
+      payload.set(gray, 0);
+      payload.set(bound, imgSize);
+
+      const frame: ImageFrame = {
+        type: 'IMAGE', frameId: 1,
+        length: 5 + payload.length,
+        width: W, height: H,
+        format: makeFormat(PixelFormat.Gray8, Codec.SparseBoundary),
+        pixelFormat: PixelFormat.Gray8,
+        codec: Codec.SparseBoundary,
+        payload, checksum: 0,
+      };
+
+      const proc = new ImageFrameProcessor({ imageWidth: W, imageHeight: H, fps: 10 });
+      const result = proc.process(frame);
+      const p = result.pixelData;
+
+      // Row 0, pixel 4 should be red
+      const idx = 4 * 4; // row 0 * width 8 + x 4 = 4, *4 = 16
+      expect(p[idx]).toBe(0xF8);     // R
+      expect(p[idx + 1]).toBe(0);    // G
+      expect(p[idx + 2]).toBe(0);    // B
+      expect(p[idx + 3]).toBe(255);  // A
+
+      // Background should be mid-gray
+      expect(p[0]).toBe(128);
+      expect(p[1]).toBe(128);
+      expect(p[2]).toBe(128);
+    });
+
+    it('Binary1 + 1 boundary line: blue vertical line at x=0', () => {
+      const imgSize = Math.ceil((W * H) / 8); // 4 bytes
+      const bin = new Uint8Array(imgSize);
+      bin.fill(0); // all black
+
+      const bound = new Uint8Array([
+        1,           // LineCount
+        0x00, 0x1F,  // Blue RGB565
+        H,           // Count
+        0, 0, 0, 0,  // X=0 for each row
+      ]);
+      const payload = new Uint8Array(imgSize + bound.length);
+      payload.set(bin, 0);
+      payload.set(bound, imgSize);
+
+      const frame: ImageFrame = {
+        type: 'IMAGE', frameId: 2,
+        length: 5 + payload.length,
+        width: W, height: H,
+        format: makeFormat(PixelFormat.Binary1, Codec.SparseBoundary),
+        pixelFormat: PixelFormat.Binary1,
+        codec: Codec.SparseBoundary,
+        payload, checksum: 0,
+      };
+
+      const proc = new ImageFrameProcessor({ imageWidth: W, imageHeight: H, fps: 10 });
+      const result = proc.process(frame);
+      const p = result.pixelData;
+
+      // Row 0, col 0: blue
+      expect(p[0]).toBe(0);        // R
+      expect(p[1]).toBe(0);        // G
+      expect(p[2]).toBe(0xF8);     // B
+      expect(p[3]).toBe(255);
+
+      // Row 0, col 1: black (binary 0 → RGBA 0,0,0,255)
+      expect(p[4]).toBe(0);
+      expect(p[5]).toBe(0);
+      expect(p[6]).toBe(0);
+      expect(p[7]).toBe(255);
+    });
+
+    it('Gray8 + 3 boundary lines (left red, mid green, right blue)', () => {
+      const imgSize = W * H;
+      const gray = new Uint8Array(imgSize);
+      gray.fill(64);
+
+      // 3 lines
+      const bound = new Uint8Array([
+        3,             // LineCount = 3
+        0xF8, 0x00, H, 2, 2, 2, 2,   // red line at x=2
+        0x07, 0xE0, H, 4, 4, 4, 4,   // green line at x=4
+        0x00, 0x1F, H, 6, 6, 6, 6,   // blue line at x=6
+      ]);
+      const payload = new Uint8Array(imgSize + bound.length);
+      payload.set(gray, 0);
+      payload.set(bound, imgSize);
+
+      const frame: ImageFrame = {
+        type: 'IMAGE', frameId: 3,
+        length: 5 + payload.length,
+        width: W, height: H,
+        format: makeFormat(PixelFormat.Gray8, Codec.SparseBoundary),
+        pixelFormat: PixelFormat.Gray8,
+        codec: Codec.SparseBoundary,
+        payload, checksum: 0,
+      };
+
+      const proc = new ImageFrameProcessor({ imageWidth: W, imageHeight: H, fps: 10 });
+      const result = proc.process(frame);
+      const p = result.pixelData;
+
+      // Row 1, x=2: red
+      const r = (1 * W + 2) * 4; // row 1, col 2
+      expect(p[r]).toBe(0xF8);
+      expect(p[r + 1]).toBe(0);
+      expect(p[r + 2]).toBe(0);
+
+      // Row 1, x=4: green
+      const g = (1 * W + 4) * 4;
+      expect(p[g]).toBe(0);
+      expect(p[g + 1]).toBe(0xFC);
+      expect(p[g + 2]).toBe(0);
+
+      // Row 3, x=6: blue
+      const b = (3 * W + 6) * 4;
+      expect(p[b]).toBe(0);
+      expect(p[b + 1]).toBe(0);
+      expect(p[b + 2]).toBe(0xF8);
+
+      // Background untouched
+      const bg = (1 * W + 1) * 4;
+      expect(p[bg]).toBe(64);
+    });
+
+    it('LineCount=0: no boundaries, pure raw image', () => {
+      const imgSize = W * H;
+      const gray = new Uint8Array(imgSize);
+      gray.fill(200);
+
+      const bound = new Uint8Array([0]); // LineCount = 0
+      const payload = new Uint8Array(imgSize + bound.length);
+      payload.set(gray, 0);
+      payload.set(bound, imgSize);
+
+      const frame: ImageFrame = {
+        type: 'IMAGE', frameId: 4,
+        length: 5 + payload.length,
+        width: W, height: H,
+        format: makeFormat(PixelFormat.Gray8, Codec.SparseBoundary),
+        pixelFormat: PixelFormat.Gray8,
+        codec: Codec.SparseBoundary,
+        payload, checksum: 0,
+      };
+
+      const proc = new ImageFrameProcessor({ imageWidth: W, imageHeight: H, fps: 10 });
+      const result = proc.process(frame);
+      const p = result.pixelData;
+
+      // All pixels should be gray 200
+      for (let i = 0; i < W * H; i++) {
+        expect(p[i * 4]).toBe(200);
+        expect(p[i * 4 + 1]).toBe(200);
+        expect(p[i * 4 + 2]).toBe(200);
+        expect(p[i * 4 + 3]).toBe(255);
+      }
+    });
+
+    it('should reject SparseBoundary for RGB565 (unsupported PixelFormat)', () => {
+      const imgSize = W * H * 2;
+      const payload = new Uint8Array(imgSize + 1);
+      payload.fill(0);
+      payload[imgSize] = 0; // LineCount=0
+
+      const frame: ImageFrame = {
+        type: 'IMAGE', frameId: 5,
+        length: 5 + payload.length,
+        width: W, height: H,
+        format: makeFormat(PixelFormat.RGB565, Codec.SparseBoundary),
+        pixelFormat: PixelFormat.RGB565,
+        codec: Codec.SparseBoundary,
+        payload, checksum: 0,
+      };
+
+      const proc = new ImageFrameProcessor({ imageWidth: W, imageHeight: H, fps: 10 });
+      expect(() => proc.process(frame)).toThrow();
+    });
   });
 });
 

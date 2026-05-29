@@ -49,6 +49,13 @@ export class ImageFrameProcessor {
     let raw: Uint8Array;
     if (codec === Codec.RAW) {
       raw = payload;
+    } else if (codec === Codec.SparseBoundary) {
+      /* SparseBoundary: 仅 Binary1(0) / Gray8(1) 有效 */
+      if (pixelFormat !== PixelFormat.Binary1 && pixelFormat !== PixelFormat.Gray8) {
+        throw new Error(`SparseBoundary only supports Binary1/Gray8, got ${PixelFormat[pixelFormat]}`);
+      }
+      const imgSize = this.expectedRawSize(pixelFormat, width, height);
+      raw = payload.slice(0, imgSize);
     } else {
       raw = this.decodePayload(payload, codec, pixelFormat, width, height);
     }
@@ -62,13 +69,19 @@ export class ImageFrameProcessor {
       );
     }
 
-    // 3. 缓存参考帧（RAW 和 Tile 的 decoded raw 都作为后续 P 帧的参考）
-    if (codec === Codec.RAW || codec === Codec.Tile || codec === Codec.Patch) {
+    // 3. 缓存参考帧
+    if (codec === Codec.RAW || codec === Codec.Tile || codec === Codec.Patch || codec === Codec.SparseBoundary) {
       this.iFrameCache = raw;
     }
 
     // 4. RAW → RGBA
     const pixelData = this.rawToRGBA(raw, pixelFormat, width, height);
+
+    // 5. SparseBoundary: 在 RGBA 上绘制边界线
+    if (codec === Codec.SparseBoundary) {
+      const imgSize = this.expectedRawSize(pixelFormat, width, height);
+      this.drawBoundaryOverlay(pixelData, payload, imgSize, width, height);
+    }
 
     const processed: ProcessedImageData = {
       frameId,
@@ -112,6 +125,47 @@ export class ImageFrameProcessor {
       return patchDecode(payload, this.iFrameCache, pixelFormat, width);
     }
     throw new Error(`Codec ${Codec[codec]} (${codec}) not yet implemented`);
+  }
+
+  /**
+   * SparseBoundary 边界叠加：在 RGBA 图像上绘制彩色边界线
+   *
+   * BoundarySection 格式:
+   *   [LineCount(1B)] for each: [Color(2B RGB565 BE)] [Count(1B)] [X[0..Count-1](1B each)]
+   */
+  private drawBoundaryOverlay(
+    rgba: Uint8ClampedArray,
+    payload: Uint8Array,
+    imgSize: number,
+    width: number,
+    height: number,
+  ): void {
+    let off = imgSize;
+    if (off >= payload.length) return;
+
+    const lineCount = payload[off++];
+    for (let l = 0; l < lineCount; l++) {
+      if (off + 2 > payload.length) break;
+      const colorRGB565 = (payload[off] << 8) | payload[off + 1];
+      off += 2;
+      const r = ((colorRGB565 >> 11) & 0x1F) << 3;
+      const g = ((colorRGB565 >> 5) & 0x3F) << 2;
+      const b = (colorRGB565 & 0x1F) << 3;
+
+      if (off >= payload.length) break;
+      const count = payload[off++];
+
+      for (let row = 0; row < count && off < payload.length; row++) {
+        const x = payload[off++];
+        if (x < width && row < height) {
+          const idx = (row * width + x) * 4;
+          rgba[idx]     = r;
+          rgba[idx + 1] = g;
+          rgba[idx + 2] = b;
+          rgba[idx + 3] = 255;
+        }
+      }
+    }
   }
 
   /** 计算给定 PixelFormat 的 RAW 帧预期字节数 */

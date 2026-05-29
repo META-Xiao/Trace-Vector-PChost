@@ -41,6 +41,7 @@ export enum Codec {
   Patch           = 4, // 变化检测：最小矩形传输 (P帧，无熵编码)
   TileHEATSHRINK  = 5, // Tile + HEATSHRINK 复合 (P帧)
   PatchHEATSHRINK = 6, // Patch + HEATSHRINK 复合 (P帧)
+  SparseBoundary  = 7, // 灰度/二值 + 边界坐标分离 (PixelFormat 0/1 专用)
 }
 
 /**
